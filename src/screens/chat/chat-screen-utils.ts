@@ -5,6 +5,34 @@ export type StickyStreamingTextState = {
   text: string
 }
 
+function normalizeInstanceId(instanceId?: string): string {
+  const trimmed = instanceId?.trim()
+  return trimmed || 'default'
+}
+
+function normalizeSessionId(sessionId?: string): string {
+  const trimmed = sessionId?.trim()
+  return trimmed || 'new'
+}
+
+export function getLastSessionStorageKey(instanceId?: string): string {
+  const normalizedInstanceId = normalizeInstanceId(instanceId)
+  if (normalizedInstanceId === 'default') return 'hermes-last-session'
+  return `hermes-last-session-${normalizedInstanceId}`
+}
+
+export function getThinkingLevelStorageKey(
+  sessionId?: string,
+  instanceId?: string,
+): string {
+  const normalizedSessionId = normalizeSessionId(sessionId)
+  const normalizedInstanceId = normalizeInstanceId(instanceId)
+  if (normalizedInstanceId === 'default') {
+    return `hermes-thinking-${normalizedSessionId}`
+  }
+  return `hermes-thinking-${normalizedInstanceId}-${normalizedSessionId}`
+}
+
 export function advanceStickyStreamingText(params: {
   isStreaming: boolean
   runId: string | null
@@ -31,6 +59,17 @@ export function advanceStickyStreamingText(params: {
     runId: nextRunId,
     text: nextText,
   }
+}
+
+type InstanceModelSource = {
+  model?: string | null
+}
+
+export function resolveGatewayModel(
+  statusModel: string | null | undefined,
+  activeInstance: InstanceModelSource | null | undefined,
+): string {
+  return statusModel || activeInstance?.model || ''
 }
 
 type OptimisticMessagePayload = {

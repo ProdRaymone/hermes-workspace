@@ -85,7 +85,9 @@ export function useStreamingMessage(options: UseStreamingMessageOptions = {}) {
   const finishedRef = useRef(false)
   const thinkingRef = useRef<string>('')
   const activeRunIdRef = useRef<string | null>(null)
-  const delayedUnregisterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const delayedUnregisterTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null)
   const activeSessionKeyRef = useRef<string>('main')
   const lifecyclePhaseRef = useRef<StreamLifecyclePhase>('idle')
   const acceptedAtRef = useRef<number | null>(null)
@@ -597,9 +599,7 @@ export function useStreamingMessage(options: UseStreamingMessageOptions = {}) {
             type: 'done',
             state: doneState ?? 'final',
             errorMessage,
-            message: (payload).message as
-              | Record<string, unknown>
-              | undefined,
+            message: payload.message as Record<string, unknown> | undefined,
             runId: activeRunIdRef.current ?? undefined,
             sessionKey: activeSessionKeyRef.current,
             transport: 'send-stream',
@@ -684,6 +684,7 @@ export function useStreamingMessage(options: UseStreamingMessageOptions = {}) {
       attachments?: Array<ChatAttachment>
       idempotencyKey?: string
       model?: string
+      instanceId?: string
     }) => {
       if (eventSourceRef.current) {
         // Preserve in-progress response as a partial message before aborting
@@ -698,7 +699,12 @@ export function useStreamingMessage(options: UseStreamingMessageOptions = {}) {
               role: 'assistant',
               content: [
                 ...(thinkingRef.current
-                  ? [{ type: 'thinking' as const, thinking: thinkingRef.current }]
+                  ? [
+                      {
+                        type: 'thinking' as const,
+                        thinking: thinkingRef.current,
+                      },
+                    ]
                   : []),
                 { type: 'text' as const, text: fullTextRef.current },
               ],
@@ -725,7 +731,10 @@ export function useStreamingMessage(options: UseStreamingMessageOptions = {}) {
       })
 
       try {
-        const response = await fetch('/api/send-stream', {
+        const query = new URLSearchParams({
+          instance: params.instanceId || 'default',
+        })
+        const response = await fetch(`/api/send-stream?${query.toString()}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -738,7 +747,11 @@ export function useStreamingMessage(options: UseStreamingMessageOptions = {}) {
             attachments: params.attachments,
             idempotencyKey: params.idempotencyKey ?? crypto.randomUUID(),
             model: params.model || undefined,
-            locale: typeof window !== 'undefined' ? localStorage.getItem('hermes-workspace-locale') || 'en' : 'en',
+            instance: params.instanceId || 'default',
+            locale:
+              typeof window !== 'undefined'
+                ? localStorage.getItem('hermes-workspace-locale') || 'en'
+                : 'en',
           }),
           signal: abortController.signal,
         })
@@ -819,7 +832,8 @@ export function useStreamingMessage(options: UseStreamingMessageOptions = {}) {
           }
         }
 
-        const lifecyclePhase = lifecyclePhaseRef.current as StreamLifecyclePhase
+        const lifecyclePhase: string = lifecyclePhaseRef.current
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- ref may change from SSE event handlers during this loop
         if (!finishedRef.current && lifecyclePhase !== 'handoff') {
           finishStream()
         }

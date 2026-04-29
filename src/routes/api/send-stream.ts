@@ -7,23 +7,31 @@ import {
   registerActiveSendRun,
   unregisterActiveSendRun,
 } from '../../server/send-run-tracker'
-import { getChatMode } from '../../server/gateway-capabilities'
-import { ensureLocalSession, appendLocalMessage, getLocalMessages, touchLocalSession } from '../../server/local-session-store'
-import { getLocalProviderDef, getDiscoveredModels } from '../../server/local-provider-discovery'
 import {
-  
-  
-  openaiChat
+  appendLocalMessage,
+  ensureLocalSession,
+  getLocalMessages,
+  touchLocalSession,
+} from '../../server/local-session-store'
+import {
+  getDiscoveredModels,
+  getLocalProviderDef,
+} from '../../server/local-provider-discovery'
+import { openaiChat } from '../../server/openai-compat-api'
+import { SESSIONS_API_UNAVAILABLE_MESSAGE } from '../../server/hermes-api'
+import { resolveRequestHermesInstance } from '../../server/hermes-instances'
+import {
+  createInstanceSession,
+  getInstanceChatMode,
+  listInstanceSessions,
+  openaiInstanceChat,
+  probeInstanceCapabilities,
+  streamInstanceChat,
+} from '../../server/hermes-instance-api'
+import type {
+  OpenAICompatContentPart,
+  OpenAICompatMessage,
 } from '../../server/openai-compat-api'
-import {
-  SESSIONS_API_UNAVAILABLE_MESSAGE,
-  createSession,
-  ensureGatewayProbed,
-  getGatewayCapabilities,
-  listSessions,
-  streamChat,
-} from '../../server/hermes-api'
-import type {OpenAICompatContentPart, OpenAICompatMessage} from '../../server/openai-compat-api';
 // Hermes agent runs can take 5+ minutes with complex tool chains
 const SEND_STREAM_RUN_TIMEOUT_MS = 600_000
 const SESSION_BOOTSTRAP_KEYS = new Set(['main', 'new'])
@@ -277,7 +285,8 @@ export const Route = createFileRoute('/api/send-stream')({
         }
         const csrfCheck = requireJsonContentType(request)
         if (csrfCheck) return csrfCheck
-        await ensureGatewayProbed()
+        const instance = await resolveRequestHermesInstance(request)
+        const capabilities = await probeInstanceCapabilities(instance)
 
         // Read body manually to handle large payloads (image attachments
         // can push the JSON body above the default ~1MB parse limit).
@@ -337,13 +346,17 @@ export const Route = createFileRoute('/api/send-stream')({
         }
 
         // Check if the selected model is a local provider model — force portable + direct routing
-        let chatMode = getChatMode()
+        let chatMode = getInstanceChatMode(capabilities)
         let localBaseUrl: string | undefined
         const requestModel = typeof body.model === 'string' ? body.model : ''
-        const bareModel = requestModel.includes('/') ? requestModel.split('/').slice(1).join('/') : requestModel
+        const bareModel = requestModel.includes('/')
+          ? requestModel.split('/').slice(1).join('/')
+          : requestModel
         if (requestModel) {
           const discoveredModels = getDiscoveredModels()
-          const localMatch = discoveredModels.find((m) => m.id === requestModel || m.id === bareModel)
+          const localMatch = discoveredModels.find(
+            (m) => m.id === requestModel || m.id === bareModel,
+          )
           if (localMatch) {
             const providerDef = getLocalProviderDef(localMatch.provider)
             if (providerDef) {
@@ -405,7 +418,10 @@ export const Route = createFileRoute('/api/send-stream')({
                 const portableSessionKey = sessionKey
 
                 // Ensure session exists (user message appended after building history)
-                ensureLocalSession(portableSessionKey, typeof body.model === 'string' ? body.model : undefined)
+                ensureLocalSession(
+                  portableSessionKey,
+                  typeof body.model === 'string' ? body.model : undefined,
+                )
                 const portableFriendlyId =
                   resolvedFriendlyId ||
                   requestedFriendlyId ||
@@ -434,13 +450,20 @@ export const Route = createFileRoute('/api/send-stream')({
                     attachments,
                   )
                   // Inject locale preference so the agent responds in the user's language
-                  const locale = typeof body.locale === 'string' ? body.locale.trim() : ''
-                  const localeSystemMsg: Array<OpenAICompatMessage> = locale && locale !== 'en'
-                    ? [{ role: 'system', content: `Respond in ${locale === 'es' ? 'Spanish' : locale === 'fr' ? 'French' : locale === 'zh' ? 'Chinese' : locale === 'de' ? 'German' : locale === 'ja' ? 'Japanese' : locale === 'ko' ? 'Korean' : locale === 'pt' ? 'Portuguese' : locale === 'ru' ? 'Russian' : locale === 'ar' ? 'Arabic' : 'English'}. The user's interface is set to this language.` }]
-                    : []
+                  const locale =
+                    typeof body.locale === 'string' ? body.locale.trim() : ''
+                  const localeSystemMsg: Array<OpenAICompatMessage> =
+                    locale && locale !== 'en'
+                      ? [
+                          {
+                            role: 'system',
+                            content: `Respond in ${locale === 'es' ? 'Spanish' : locale === 'fr' ? 'French' : locale === 'zh' ? 'Chinese' : locale === 'de' ? 'German' : locale === 'ja' ? 'Japanese' : locale === 'ko' ? 'Korean' : locale === 'pt' ? 'Portuguese' : locale === 'ru' ? 'Russian' : locale === 'ar' ? 'Arabic' : 'English'}. The user's interface is set to this language.`,
+                          },
+                        ]
+                      : []
                   // Load persisted history for this session, then append user message
                   const persistedMessages = getLocalMessages(portableSessionKey)
-                  const persistedHistory = persistedMessages.map(m => ({
+                  const persistedHistory = persistedMessages.map((m) => ({
                     role: m.role as 'user' | 'assistant' | 'system',
                     content: m.content,
                   }))
@@ -448,11 +471,13 @@ export const Route = createFileRoute('/api/send-stream')({
                   appendLocalMessage(portableSessionKey, {
                     id: crypto.randomUUID(),
                     role: 'user',
-                    content: typeof body.message === 'string' ? body.message : '',
+                    content:
+                      typeof body.message === 'string' ? body.message : '',
                     timestamp: Date.now(),
                   })
                   // Use persisted history if available, otherwise fall back to client-sent history
-                  const effectiveHistory = persistedHistory.length > 0 ? persistedHistory : history
+                  const effectiveHistory =
+                    persistedHistory.length > 0 ? persistedHistory : history
                   const portableMessages: Array<OpenAICompatMessage> = [
                     ...localeSystemMsg,
                     ...effectiveHistory,
@@ -461,17 +486,31 @@ export const Route = createFileRoute('/api/send-stream')({
                       content: userContent,
                     },
                   ]
-                  const stream = await openaiChat(portableMessages, {
-                    model: localBaseUrl ? bareModel : (typeof body.model === 'string' ? body.model : undefined),
-                    temperature:
-                      typeof body.temperature === 'number'
-                        ? body.temperature
-                        : undefined,
-                    signal: abortController.signal,
-                    stream: true,
-                    sessionId: portableSessionKey,
-                    baseUrl: localBaseUrl,
-                  })
+                  const stream = localBaseUrl
+                    ? await openaiChat(portableMessages, {
+                        model: bareModel,
+                        temperature:
+                          typeof body.temperature === 'number'
+                            ? body.temperature
+                            : undefined,
+                        signal: abortController.signal,
+                        stream: true,
+                        sessionId: portableSessionKey,
+                        baseUrl: localBaseUrl,
+                      })
+                    : await openaiInstanceChat(instance, portableMessages, {
+                        model:
+                          typeof body.model === 'string'
+                            ? body.model
+                            : instance.model,
+                        temperature:
+                          typeof body.temperature === 'number'
+                            ? body.temperature
+                            : undefined,
+                        signal: abortController.signal,
+                        stream: true,
+                        sessionId: portableSessionKey,
+                      })
 
                   let thinking = ''
                   let toolEventCount = 0
@@ -539,7 +578,7 @@ export const Route = createFileRoute('/api/send-stream')({
                 return
               }
 
-              if (!getGatewayCapabilities().sessions) {
+              if (!capabilities.sessions) {
                 throw new Error(SESSIONS_API_UNAVAILABLE_MESSAGE)
               }
 
@@ -551,7 +590,7 @@ export const Route = createFileRoute('/api/send-stream')({
                 let reused: string | null = null
                 if (sessionKey === 'main') {
                   try {
-                    const recent = await listSessions(30, 0)
+                    const recent = await listInstanceSessions(instance, 30, 0)
                     const isInternal = (id: string) =>
                       id.startsWith('cron_') ||
                       id.startsWith('cron:') ||
@@ -584,7 +623,7 @@ export const Route = createFileRoute('/api/send-stream')({
                   sessionKey = reused
                   resolvedFriendlyId = reused
                 } else {
-                  const session = await createSession()
+                  const session = await createInstanceSession(instance)
                   sessionKey = session.id
                   resolvedFriendlyId = session.id
                 }
@@ -592,10 +631,10 @@ export const Route = createFileRoute('/api/send-stream')({
 
               let startedSent = false
               // In enhanced mode, the HTTP stream response delivers all events
-              // directly to useStreamingMessage. Skip publishChatEvent to prevent
-              // useRealtimeChatHistory from creating duplicate message bubbles.
-              const skipPublish = true
-              await streamChat(
+              // directly to useStreamingMessage. Do not publish the same events
+              // through useRealtimeChatHistory or they create duplicate bubbles.
+              await streamInstanceChat(
+                instance,
                 sessionKey,
                 {
                   message: getChatMessage(message, attachments),
@@ -637,35 +676,7 @@ export const Route = createFileRoute('/api/send-stream')({
                       })
                     }
 
-                    if (event === 'run.started') {
-                      const userMessage =
-                        data.user_message &&
-                        typeof data.user_message === 'object'
-                          ? (data.user_message as Record<string, unknown>)
-                          : null
-                      if (userMessage) {
-                        skipPublish ||
-                          publishChatEvent('user_message', {
-                            message: {
-                              id: userMessage.id,
-                              role: userMessage.role ?? 'user',
-                              content: [
-                                {
-                                  type: 'text',
-                                  text:
-                                    typeof userMessage.content === 'string'
-                                      ? userMessage.content
-                                      : '',
-                                },
-                              ],
-                            },
-                            sessionKey: sessionKeyFromEvent,
-                            source: 'hermes',
-                            runId,
-                          })
-                      }
-                      return
-                    }
+                    if (event === 'run.started') return
 
                     if (event === 'message.started') {
                       const message =
@@ -682,7 +693,6 @@ export const Route = createFileRoute('/api/send-stream')({
                         runId,
                       }
                       sendEvent('message', translated)
-                      skipPublish || publishChatEvent('message', translated)
                       return
                     }
 
@@ -699,7 +709,6 @@ export const Route = createFileRoute('/api/send-stream')({
                           runId,
                         }
                         sendEvent('chunk', translated)
-                        skipPublish || publishChatEvent('chunk', translated)
                       }
                       return
                     }
@@ -714,7 +723,6 @@ export const Route = createFileRoute('/api/send-stream')({
                         runId,
                       }
                       sendEvent('chunk', translated)
-                      skipPublish || publishChatEvent('chunk', translated)
                       return
                     }
 
@@ -742,7 +750,6 @@ export const Route = createFileRoute('/api/send-stream')({
                         runId,
                       }
                       sendEvent('tool', translated)
-                      skipPublish || publishChatEvent('tool', translated)
                       return
                     }
 
@@ -757,7 +764,6 @@ export const Route = createFileRoute('/api/send-stream')({
                           runId,
                         }
                         sendEvent('thinking', translated)
-                        skipPublish || publishChatEvent('thinking', translated)
                         return
                       }
                       const translated = {
@@ -770,7 +776,6 @@ export const Route = createFileRoute('/api/send-stream')({
                         runId,
                       }
                       sendEvent('tool', translated)
-                      skipPublish || publishChatEvent('tool', translated)
                       return
                     }
 
@@ -787,7 +792,6 @@ export const Route = createFileRoute('/api/send-stream')({
                         runId,
                       }
                       sendEvent('tool', translated)
-                      skipPublish || publishChatEvent('tool', translated)
                       return
                     }
 
@@ -807,12 +811,13 @@ export const Route = createFileRoute('/api/send-stream')({
                           readString(data.kind) ||
                           'artifact',
                         path:
-                          readString(artifact.path) || readString(data.path) || '',
+                          readString(artifact.path) ||
+                          readString(data.path) ||
+                          '',
                         sessionKey: sessionKeyFromEvent,
                         runId,
                       }
                       sendEvent('artifact', translated)
-                      skipPublish || publishChatEvent('artifact', translated)
                       return
                     }
 
@@ -828,7 +833,6 @@ export const Route = createFileRoute('/api/send-stream')({
                         runId,
                       }
                       sendEvent('tool', translated)
-                      skipPublish || publishChatEvent('tool', translated)
                       return
                     }
 
@@ -849,7 +853,6 @@ export const Route = createFileRoute('/api/send-stream')({
                         runId,
                       }
                       sendEvent('tool', translated)
-                      skipPublish || publishChatEvent('tool', translated)
                       return
                     }
 
@@ -869,7 +872,6 @@ export const Route = createFileRoute('/api/send-stream')({
                         runId,
                       }
                       sendEvent('tool', translated)
-                      skipPublish || publishChatEvent('tool', translated)
                       return
                     }
 
@@ -897,7 +899,6 @@ export const Route = createFileRoute('/api/send-stream')({
                         runId,
                       }
                       sendEvent('done', translated)
-                      skipPublish || publishChatEvent('done', translated)
                       closeStream()
                     }
                   },
@@ -935,6 +936,7 @@ export const Route = createFileRoute('/api/send-stream')({
             Connection: 'keep-alive',
             'X-Hermes-Session-Key': sessionKey,
             'X-Hermes-Friendly-Id': resolvedFriendlyId,
+            'X-Hermes-Instance': instance.id,
           },
         })
       },

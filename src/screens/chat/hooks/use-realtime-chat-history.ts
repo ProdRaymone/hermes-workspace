@@ -5,11 +5,9 @@ import { useChatStore } from '../../../stores/chat-store'
 import { appendHistoryMessage, chatQueryKeys } from '../chat-queries'
 import { toast } from '../../../components/ui/toast'
 import { textFromMessage } from '../utils'
+import { persistPortableHistory } from '../portable-history'
 import type { ChatMessage } from '../types'
 import type { StreamingState } from '../../../stores/chat-store'
-
-const PORTABLE_HISTORY_STORAGE_KEY = 'hermes_portable_chat_main'
-const PORTABLE_HISTORY_LIMIT = 100
 
 /** Read clientId from a message using either camelCase or snake_case field. */
 function readClientId(message: ChatMessage): string {
@@ -68,26 +66,6 @@ function attachmentSignature(message: ChatMessage): string {
     .join('|')
 }
 
-function persistPortableHistory(messages: Array<ChatMessage>) {
-  if (typeof window === 'undefined') return
-
-  const persistedMessages = messages
-    .filter((message) => message.__streamingStatus !== 'streaming')
-    .slice(-PORTABLE_HISTORY_LIMIT)
-
-  try {
-    window.localStorage.setItem(
-      PORTABLE_HISTORY_STORAGE_KEY,
-      JSON.stringify({
-        messages: persistedMessages,
-        updatedAt: Date.now(),
-      }),
-    )
-  } catch {
-    // Ignore persistence failures (quota, private mode, malformed messages).
-  }
-}
-
 const EMPTY_MESSAGES: Array<ChatMessage> = []
 const EMPTY_TOOL_CALLS: Array<{
   id: string
@@ -106,6 +84,7 @@ type UseRealtimeChatHistoryOptions = {
   onApprovalRequest?: (approval: Record<string, unknown>) => void
   onCompactionStart?: () => void
   onCompactionEnd?: () => void
+  instanceId?: string
 }
 
 type CompactionEvent = {
@@ -129,6 +108,7 @@ export function useRealtimeChatHistory({
   onApprovalRequest,
   onCompactionStart,
   onCompactionEnd,
+  instanceId = 'default',
 }: UseRealtimeChatHistoryOptions & { portableMode?: boolean }) {
   const queryClient = useQueryClient()
   const effectiveFriendlyId = portableMode ? 'main' : friendlyId
@@ -154,6 +134,7 @@ export function useRealtimeChatHistory({
       const key = chatQueryKeys.history(
         effectiveFriendlyId,
         effectiveSessionKey,
+        instanceId,
       )
       await queryClient.invalidateQueries({ queryKey: key, exact: true })
       await queryClient.refetchQueries({
@@ -164,7 +145,7 @@ export function useRealtimeChatHistory({
     } finally {
       isBackfillingRef.current = false
     }
-  }, [effectiveFriendlyId, effectiveSessionKey, queryClient])
+  }, [effectiveFriendlyId, effectiveSessionKey, instanceId, queryClient])
 
   useEffect(() => {
     if (!enabled) return
@@ -238,6 +219,7 @@ export function useRealtimeChatHistory({
               const key = chatQueryKeys.history(
                 effectiveFriendlyId,
                 effectiveSessionKey,
+                instanceId,
               )
               const cached =
                 queryClient.getQueryData<Record<string, unknown>>(key)
@@ -280,6 +262,7 @@ export function useRealtimeChatHistory({
               ...message,
               __realtimeSource: source,
             },
+            instanceId,
           )
         }
         onUserMessage?.(message, source)
@@ -288,6 +271,7 @@ export function useRealtimeChatHistory({
         clearCompletedStreaming,
         effectiveFriendlyId,
         effectiveSessionKey,
+        instanceId,
         onUserMessage,
         queryClient,
       ],
@@ -319,6 +303,7 @@ export function useRealtimeChatHistory({
             const key = chatQueryKeys.history(
               effectiveFriendlyId,
               effectiveSessionKey,
+              instanceId,
             )
             const prevData =
               queryClient.getQueryData<Record<string, unknown>>(key)
@@ -357,6 +342,7 @@ export function useRealtimeChatHistory({
         clearCompletedStreaming,
         effectiveFriendlyId,
         effectiveSessionKey,
+        instanceId,
         onCompactionEnd,
         queryClient,
       ],
@@ -430,14 +416,13 @@ export function useRealtimeChatHistory({
   const mergedMessages = useMemo(() => {
     if (effectiveSessionKey === 'new') return historyMessages
     return mergeHistoryMessages(effectiveSessionKey, historyMessages)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveSessionKey, historyMessages, mergeHistoryMessages, lastEventAt])
 
   useEffect(() => {
     if (!portableMode) return
     if (mergedMessages.length === 0) return
-    persistPortableHistory(mergedMessages)
-  }, [mergedMessages, portableMode])
+    persistPortableHistory(mergedMessages, instanceId)
+  }, [instanceId, mergedMessages, portableMode])
 
   // History has caught up — cleanup realtime buffer outside render
   // DISABLED: This was aggressively clearing realtime messages before history
@@ -499,13 +484,20 @@ export function useRealtimeChatHistory({
       const key = chatQueryKeys.history(
         effectiveFriendlyId,
         effectiveSessionKey,
+        instanceId,
       )
       queryClient.invalidateQueries({ queryKey: key })
     }, 30000)
     return () => {
       if (syncIntervalRef.current) clearInterval(syncIntervalRef.current)
     }
-  }, [effectiveFriendlyId, effectiveSessionKey, enabled, queryClient])
+  }, [
+    effectiveFriendlyId,
+    effectiveSessionKey,
+    enabled,
+    instanceId,
+    queryClient,
+  ])
 
   // Clear realtime buffer when session changes
   useEffect(() => {

@@ -1,13 +1,26 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import path from 'node:path'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, readdirSync } = vi.hoisted(() => ({
+const {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  statSync,
+  readdirSync,
+  resolveRequestHermesInstance,
+  probeInstanceCapabilities,
+  fetchInstanceModels,
+} = vi.hoisted(() => ({
   existsSync: vi.fn().mockReturnValue(false),
   readFileSync: vi.fn().mockReturnValue(''),
   writeFileSync: vi.fn().mockImplementation(() => {}),
   mkdirSync: vi.fn().mockImplementation(() => {}),
   statSync: vi.fn().mockReturnValue({ isFile: () => false, mtimeMs: 0 }),
   readdirSync: vi.fn().mockReturnValue([]),
+  resolveRequestHermesInstance: vi.fn(),
+  probeInstanceCapabilities: vi.fn(),
+  fetchInstanceModels: vi.fn(),
 }))
 
 vi.mock('node:fs', () => ({
@@ -41,9 +54,13 @@ vi.mock('../../../server/gateway-capabilities', () => ({
   HERMES_API: 'http://127.0.0.1:8642',
 }))
 
-vi.mock('../../../server/hermes-api', () => ({
-  ensureGatewayProbed: vi.fn(),
-  getGatewayCapabilities: () => ({ models: false }),
+vi.mock('../../../server/hermes-instances', () => ({
+  resolveRequestHermesInstance,
+}))
+
+vi.mock('../../../server/hermes-instance-api', () => ({
+  probeInstanceCapabilities,
+  fetchInstanceModels,
 }))
 
 vi.mock('../../../server/local-provider-discovery', () => ({
@@ -55,6 +72,19 @@ vi.mock('../../../server/local-provider-discovery', () => ({
 beforeEach(() => {
   vi.clearAllMocks()
   delete process.env.HERMES_HOME
+  resolveRequestHermesInstance.mockResolvedValue({
+    id: 'default',
+    profileName: 'default',
+    label: 'Hermes 1',
+    profilePath: '~/.hermes',
+    gatewayUrl: 'http://127.0.0.1:8642',
+    port: 8642,
+    source: 'fallback',
+    isDefault: true,
+    status: 'unknown',
+  })
+  probeInstanceCapabilities.mockResolvedValue({ models: false })
+  fetchInstanceModels.mockResolvedValue([])
 })
 
 describe('models route', () => {
@@ -87,12 +117,14 @@ describe('models route', () => {
 
     const configYaml = 'model: jarvis-model\nprovider: nous\n'
     const modelsJson = '[{"model":"x","provider":"y"}]'
+    const modelsPath = path.join(envHome, 'models.json')
+    const configPath = path.join(envHome, 'config.yaml')
     existsSync.mockImplementation((p: string) => {
-      return p === `${envHome}/models.json` || p === `${envHome}/config.yaml`
+      return p === modelsPath || p === configPath
     })
     readFileSync.mockImplementation((p: string) => {
-      if (p === `${envHome}/config.yaml`) return configYaml
-      if (p === `${envHome}/models.json`) return modelsJson
+      if (p === configPath) return configYaml
+      if (p === modelsPath) return modelsJson
       return ''
     })
 
@@ -111,9 +143,10 @@ describe('models route', () => {
     process.env.HERMES_HOME = envHome
 
     const configYaml = 'model:\n  default: nest-model\n  provider: anthropic\n'
-    existsSync.mockImplementation((p: string) => p === `${envHome}/config.yaml`)
+    const configPath = path.join(envHome, 'config.yaml')
+    existsSync.mockImplementation((p: string) => p === configPath)
     readFileSync.mockImplementation((p: string) => {
-      if (p === `${envHome}/config.yaml`) return configYaml
+      if (p === configPath) return configYaml
       return ''
     })
 

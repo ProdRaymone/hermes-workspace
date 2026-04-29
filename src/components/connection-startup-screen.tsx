@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import type { AuthStatus } from '@/lib/hermes-auth'
 import { writeTextToClipboard } from '@/lib/clipboard'
 import { fetchHermesAuthStatus } from '@/lib/hermes-auth'
+import { shouldAttemptHermesAutoStart } from '@/lib/hermes-instance-scope'
 
 const POLL_INTERVAL_MS = 2_000
 const FAILURE_REVEAL_MS = 5_000
-// Fire one silent auto-start attempt this many ms after we still can't connect.
+// If explicitly enabled, fire one silent auto-start attempt this many ms after
+// we still can't connect. Multi-instance V1 keeps this off by default.
 const AUTO_START_DELAY_MS = 4_000
 
 type Platform = 'macos' | 'windows' | 'linux' | 'unknown'
@@ -49,7 +51,11 @@ function getSetupSteps(
   ]
 }
 
-type Props = { onConnected: (status: AuthStatus) => void }
+type Props = {
+  onConnected: (status: AuthStatus) => void
+  instanceId?: string
+  allowAutoStart?: boolean
+}
 
 declare global {
   interface Window {
@@ -57,7 +63,11 @@ declare global {
   }
 }
 
-export function ConnectionStartupScreen({ onConnected }: Props) {
+export function ConnectionStartupScreen({
+  onConnected,
+  instanceId = 'default',
+  allowAutoStart = false,
+}: Props) {
   const [showFailureState, setShowFailureState] = useState(false)
   const [serverStarting, setServerStarting] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
@@ -95,9 +105,8 @@ export function ConnectionStartupScreen({ onConnected }: Props) {
       }
     }, FAILURE_REVEAL_MS)
 
-    // After a short grace period, fire /api/start-hermes once silently.
-    // If hermes-agent is installed and just not running, this brings it back
-    // up without making the user click anything. The polling loop will see it.
+    // Optional legacy behavior: after a short grace period, fire
+    // /api/start-hermes once silently. V1 multi-instance leaves this disabled.
     const fireSilentAutoStart = async () => {
       if (autoStartFired || isDone.current) return
       autoStartFired = true
@@ -114,8 +123,7 @@ export function ConnectionStartupScreen({ onConnected }: Props) {
           // looking at the failure panel
           setServerLog([
             String(
-              data.message ||
-                'Auto-started Hermes gateway — reconnecting…',
+              data.message || 'Auto-started Hermes gateway — reconnecting…',
             ),
           ])
         }
@@ -123,13 +131,15 @@ export function ConnectionStartupScreen({ onConnected }: Props) {
         // silent: manual auto-start button stays available
       }
     }
-    autoStartTimer = setTimeout(() => {
-      void fireSilentAutoStart()
-    }, AUTO_START_DELAY_MS)
+    if (shouldAttemptHermesAutoStart('default', allowAutoStart)) {
+      autoStartTimer = setTimeout(() => {
+        void fireSilentAutoStart()
+      }, AUTO_START_DELAY_MS)
+    }
 
     const tryConnect = async () => {
       try {
-        const status = await fetchHermesAuthStatus()
+        const status = await fetchHermesAuthStatus(instanceId)
         if (isDone.current) return
         isDone.current = true
         clearTimeout(failureTimer)
@@ -150,8 +160,7 @@ export function ConnectionStartupScreen({ onConnected }: Props) {
       if (autoStartTimer) clearTimeout(autoStartTimer)
       clearTimeout(failureTimer)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [allowAutoStart, instanceId])
 
   useEffect(() => {
     if (copiedIdx === null) return

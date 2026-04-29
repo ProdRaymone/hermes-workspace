@@ -7,6 +7,12 @@ import {
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import appCss from '../styles.css?url'
+import {
+  getRootSurfaceState,
+  shouldAutoCompleteOnboarding,
+} from './-root-layout-state'
+import type { OnboardingConnectionStatus } from './-root-layout-state'
+import type { AuthStatus } from '@/lib/hermes-auth'
 import { SearchModal } from '@/components/search/search-modal'
 import { TerminalShortcutListener } from '@/components/terminal-shortcut-listener'
 import { GlobalShortcutListener } from '@/components/global-shortcut-listener'
@@ -22,11 +28,10 @@ import {
   ONBOARDING_COMPLETE_EVENT,
   ONBOARDING_KEY,
 } from '@/components/onboarding/hermes-onboarding'
+import { buildOnboardingApiPath } from '@/components/onboarding/onboarding-scope'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { LoginScreen } from '@/components/auth/login-screen'
-import { fetchHermesAuthStatus, type AuthStatus } from '@/lib/hermes-auth'
-import { getRootSurfaceState } from './-root-layout-state'
-
+import { fetchHermesAuthStatus } from '@/lib/hermes-auth'
 
 const APP_CSP = [
   "default-src 'self'",
@@ -208,7 +213,9 @@ export const Route = createRootRoute({
 
 const queryClient = new QueryClient()
 
-export function getRootLayoutMode(onboardingComplete: string | null): 'onboarding' | 'workspace' {
+export function getRootLayoutMode(
+  onboardingComplete: string | null,
+): 'onboarding' | 'workspace' {
   return onboardingComplete === 'true' ? 'workspace' : 'onboarding'
 }
 
@@ -217,7 +224,11 @@ export function wrapInlineScript(source: string): string {
 }
 
 type ServiceWorkerLike = {
-  getRegistrations: () => Promise<ReadonlyArray<{ unregister: () => boolean | Promise<boolean> | void | Promise<void> }>>
+  getRegistrations: () => Promise<
+    ReadonlyArray<{
+      unregister: () => boolean | Promise<boolean> | void | Promise<void>
+    }>
+  >
 }
 
 type CachesLike = {
@@ -243,7 +254,9 @@ export async function unregisterServiceWorkers({
 
   await cachesApi
     ?.keys()
-    .then((names) => Promise.allSettled(names.map((name) => cachesApi.delete(name))))
+    .then((names) =>
+      Promise.allSettled(names.map((name) => cachesApi.delete(name))),
+    )
     .catch(() => undefined)
 }
 
@@ -252,6 +265,7 @@ function RootLayout() {
     null,
   )
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
+  const [backendSetupDetected, setBackendSetupDetected] = useState(false)
   useApplyChatWidth()
 
   useEffect(() => {
@@ -271,6 +285,37 @@ function RootLayout() {
 
     syncOnboardingCompletion()
 
+    const autoCompleteOnboardingFromBackend = async () => {
+      try {
+        if (localStorage.getItem(ONBOARDING_KEY) === 'true') return
+
+        const response = await fetch(
+          buildOnboardingApiPath('/api/connection-status'),
+          {
+            cache: 'no-store',
+          },
+        )
+        if (!response.ok) return
+
+        const connectionStatus =
+          (await response.json()) as OnboardingConnectionStatus
+        if (!shouldAutoCompleteOnboarding(connectionStatus)) return
+
+        localStorage.setItem(ONBOARDING_KEY, 'true')
+        setBackendSetupDetected(true)
+        setOnboardingComplete(true)
+        window.dispatchEvent(
+          new CustomEvent(ONBOARDING_COMPLETE_EVENT, {
+            detail: { completed: true, source: 'backend-auto-detected' },
+          }),
+        )
+      } catch {
+        // Keep the normal onboarding flow when backend probing is unavailable.
+      }
+    }
+
+    void autoCompleteOnboardingFromBackend()
+
     const handleStorage = (event: StorageEvent) => {
       if (event.key && event.key !== ONBOARDING_KEY) return
       syncOnboardingCompletion()
@@ -287,7 +332,8 @@ function RootLayout() {
     )
 
     void unregisterServiceWorkers({
-      serviceWorker: 'serviceWorker' in navigator ? navigator.serviceWorker : undefined,
+      serviceWorker:
+        'serviceWorker' in navigator ? navigator.serviceWorker : undefined,
       cachesApi: 'caches' in window ? caches : undefined,
     })
 
@@ -317,7 +363,11 @@ function RootLayout() {
     }
   }, [])
 
-  const rootSurfaceState = getRootSurfaceState(onboardingComplete, authStatus)
+  const rootSurfaceState = getRootSurfaceState(
+    onboardingComplete,
+    authStatus,
+    backendSetupDetected,
+  )
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -370,10 +420,14 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         `),
           }}
         />
-        <script dangerouslySetInnerHTML={{ __html: wrapInlineScript(themeScript) }} />
+        <script
+          dangerouslySetInnerHTML={{ __html: wrapInlineScript(themeScript) }}
+        />
         <HeadContent />
         <script
-          dangerouslySetInnerHTML={{ __html: wrapInlineScript(themeColorScript) }}
+          dangerouslySetInnerHTML={{
+            __html: wrapInlineScript(themeColorScript),
+          }}
         />
       </head>
       <body>

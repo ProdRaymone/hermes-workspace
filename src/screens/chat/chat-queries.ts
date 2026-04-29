@@ -50,13 +50,39 @@ function isMatchingClientMessage(
 
 export const chatQueryKeys = {
   sessions: ['chat', 'sessions'] as const,
-  history: function history(friendlyId: string, sessionKey: string) {
-    return ['chat', 'history', friendlyId, sessionKey] as const
+  sessionsFor: function sessionsFor(instanceId = 'default') {
+    return ['chat', 'sessions', normalizeInstanceId(instanceId)] as const
+  },
+  history: function history(
+    friendlyId: string,
+    sessionKey: string,
+    instanceId = 'default',
+  ) {
+    return [
+      'chat',
+      'history',
+      normalizeInstanceId(instanceId),
+      friendlyId,
+      sessionKey,
+    ] as const
   },
 } as const
 
-export async function fetchSessions(): Promise<Array<SessionMeta>> {
-  const res = await fetch('/api/sessions')
+function normalizeInstanceId(instanceId: string | undefined): string {
+  const trimmed = instanceId?.trim()
+  return trimmed || 'default'
+}
+
+function appendInstanceParam(query: URLSearchParams, instanceId?: string) {
+  query.set('instance', normalizeInstanceId(instanceId))
+}
+
+export async function fetchSessions(
+  instanceId = 'default',
+): Promise<Array<SessionMeta>> {
+  const query = new URLSearchParams()
+  appendInstanceParam(query, instanceId)
+  const res = await fetch(`/api/sessions?${query.toString()}`)
   if (!res.ok) throw new Error(await readError(res))
   const data = (await res.json()) as SessionListResponse
   return normalizeSessions(data.sessions)
@@ -65,21 +91,29 @@ export async function fetchSessions(): Promise<Array<SessionMeta>> {
 export async function fetchHistory(payload: {
   sessionKey: string
   friendlyId: string
+  instanceId?: string
 }): Promise<HistoryResponse> {
   const query = new URLSearchParams({ limit: '1000' })
   if (payload.sessionKey) query.set('sessionKey', payload.sessionKey)
   if (payload.friendlyId) query.set('friendlyId', payload.friendlyId)
+  appendInstanceParam(query, payload.instanceId)
   const res = await fetch(`/api/history?${query.toString()}`)
   if (!res.ok) throw new Error(await readError(res))
   return (await res.json()) as HistoryResponse
 }
 
-export async function fetchStatus(): Promise<StatusResponse> {
+export async function fetchStatus(
+  instanceId = 'default',
+): Promise<StatusResponse> {
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), 5000)
 
   try {
-    const res = await fetch('/api/ping', { signal: controller.signal })
+    const query = new URLSearchParams()
+    appendInstanceParam(query, instanceId)
+    const res = await fetch(`/api/ping?${query.toString()}`, {
+      signal: controller.signal,
+    })
     if (!res.ok) {
       const error = new Error(await readError(res)) as Error & {
         status?: number
@@ -107,8 +141,9 @@ export function updateHistoryMessages(
   friendlyId: string,
   sessionKey: string,
   updater: (messages: Array<ChatMessage>) => Array<ChatMessage>,
+  instanceId = 'default',
 ) {
-  const queryKey = chatQueryKeys.history(friendlyId, sessionKey)
+  const queryKey = chatQueryKeys.history(friendlyId, sessionKey, instanceId)
   queryClient.setQueryData(queryKey, function update(data: unknown) {
     const current = data as HistoryResponse | undefined
     const messages = Array.isArray(current?.messages) ? current.messages : []
@@ -246,6 +281,7 @@ export function appendHistoryMessage(
   friendlyId: string,
   sessionKey: string,
   message: ChatMessage,
+  instanceId = 'default',
 ) {
   updateHistoryMessages(
     queryClient,
@@ -359,6 +395,7 @@ export function appendHistoryMessage(
 
       return [...messages, message]
     },
+    instanceId,
   )
 }
 
@@ -368,6 +405,7 @@ export function updateHistoryMessageByClientId(
   sessionKey: string,
   clientId: string,
   updater: (message: ChatMessage) => ChatMessage,
+  instanceId = 'default',
 ) {
   const normalizedClientId = normalizeId(clientId)
   if (!normalizedClientId) return
@@ -386,6 +424,7 @@ export function updateHistoryMessageByClientId(
         return message
       })
     },
+    instanceId,
   )
 }
 
@@ -405,13 +444,15 @@ export function updateHistoryMessageByClientIdEverywhere(
     const current = data
     const messages = Array.isArray(current?.messages) ? current.messages : []
     let changed = false
-    const nextMessages = messages.map((message) => {
+    const nextMessages = []
+    for (const message of messages) {
       if (!isMatchingClientMessage(message, normalizedClientId, optimisticId)) {
-        return message
+        nextMessages.push(message)
+        continue
       }
       changed = true
-      return updater(message)
-    })
+      nextMessages.push(updater(message))
+    }
     if (!changed) continue
     queryClient.setQueryData(queryKey, {
       sessionKey: current?.sessionKey ?? '',
@@ -427,6 +468,7 @@ export function removeHistoryMessageByClientId(
   sessionKey: string,
   clientId: string,
   optimisticId?: string,
+  instanceId = 'default',
 ) {
   const normalizedClientId = normalizeId(clientId)
   if (!normalizedClientId) return
@@ -446,6 +488,7 @@ export function removeHistoryMessageByClientId(
         )
       })
     },
+    instanceId,
   )
 }
 
@@ -453,8 +496,9 @@ export function clearHistoryMessages(
   queryClient: QueryClient,
   friendlyId: string,
   sessionKey: string,
+  instanceId = 'default',
 ) {
-  const queryKey = chatQueryKeys.history(friendlyId, sessionKey)
+  const queryKey = chatQueryKeys.history(friendlyId, sessionKey, instanceId)
   queryClient.setQueryData(queryKey, {
     sessionKey,
     messages: [],
@@ -467,10 +511,15 @@ export function moveHistoryMessages(
   fromSessionKey: string,
   toFriendlyId: string,
   toSessionKey: string,
+  instanceId = 'default',
 ) {
-  const fromKey = chatQueryKeys.history(fromFriendlyId, fromSessionKey)
-  const toKey = chatQueryKeys.history(toFriendlyId, toSessionKey)
-  const fromData = queryClient.getQueryData(fromKey) as Record<string, unknown> | undefined
+  const fromKey = chatQueryKeys.history(
+    fromFriendlyId,
+    fromSessionKey,
+    instanceId,
+  )
+  const toKey = chatQueryKeys.history(toFriendlyId, toSessionKey, instanceId)
+  const fromData = queryClient.getQueryData(fromKey)
   if (!fromData) return
   const messages = Array.isArray(fromData.messages) ? fromData.messages : []
   queryClient.setQueryData(toKey, {
@@ -486,9 +535,10 @@ export function updateSessionLastMessage(
   sessionKey: string,
   friendlyId: string,
   message: ChatMessage,
+  instanceId = 'default',
 ) {
   queryClient.setQueryData(
-    chatQueryKeys.sessions,
+    chatQueryKeys.sessionsFor(instanceId),
     function update(messages: unknown) {
       if (!Array.isArray(messages)) return messages
       return (messages as Array<SessionMeta>).map((session) => {
@@ -508,9 +558,10 @@ export function removeSessionFromCache(
   queryClient: QueryClient,
   sessionKey: string,
   friendlyId: string,
+  instanceId = 'default',
 ) {
   queryClient.setQueryData(
-    chatQueryKeys.sessions,
+    chatQueryKeys.sessionsFor(instanceId),
     function update(messages: unknown) {
       if (!Array.isArray(messages)) return messages
       return (messages as Array<SessionMeta>).filter((session) => {

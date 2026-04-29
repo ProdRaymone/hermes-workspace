@@ -6,11 +6,15 @@ interface GatewayStatus {
   hermesUrl: string
 }
 
-export function useFeatureAvailable(feature: EnhancedFeature): boolean {
+export function useFeatureAvailable(
+  feature: EnhancedFeature,
+  instanceId = 'default',
+): boolean {
   const { data } = useQuery({
-    queryKey: ['gateway-status'],
+    queryKey: ['gateway-status', instanceId],
     queryFn: async () => {
-      const res = await fetch('/api/gateway-status')
+      const query = new URLSearchParams({ instance: instanceId })
+      const res = await fetch(`/api/gateway-status?${query.toString()}`)
       if (!res.ok) return null
       return (await res.json()) as GatewayStatus
     },
@@ -18,5 +22,5 @@ export function useFeatureAvailable(feature: EnhancedFeature): boolean {
     refetchInterval: 60_000,
   })
 
-  return data?.capabilities?.[feature] === true
+  return data?.capabilities[feature] === true
 }

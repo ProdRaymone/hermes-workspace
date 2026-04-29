@@ -1,11 +1,14 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json } from '@tanstack/react-start'
 import { isAuthenticated } from '../../../server/auth-middleware'
+import { resolveRequestHermesInstance } from '../../../server/hermes-instances'
 import {
-  readKnowledgeBaseConfig,
-  writeKnowledgeBaseConfig,
-  type KnowledgeBaseConfig,
-} from '../../../server/knowledge-config'
+  buildKnowledgeScopeForInstance,
+  buildKnowledgeScopePayload,
+  readKnowledgeBaseConfigForScope,
+  writeKnowledgeBaseConfigForScope,
+} from '../../../server/knowledge-browser'
+import type { KnowledgeBaseConfig } from '../../../server/knowledge-config'
 
 export const Route = createFileRoute('/api/knowledge/config')({
   server: {
@@ -14,17 +17,25 @@ export const Route = createFileRoute('/api/knowledge/config')({
         if (!isAuthenticated(request)) {
           return json({ error: 'Unauthorized' }, { status: 401 })
         }
+        const instance = await resolveRequestHermesInstance(request)
+        const scope = buildKnowledgeScopeForInstance(instance)
         try {
-          return json({ config: readKnowledgeBaseConfig() })
+          return json({
+            config: await readKnowledgeBaseConfigForScope(scope),
+            scope: buildKnowledgeScopePayload(scope),
+          })
         } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : 'Failed to read knowledge base config'
+          const status = /unavailable/i.test(message) ? 503 : 500
           return json(
             {
-              error:
-                error instanceof Error
-                  ? error.message
-                  : 'Failed to read knowledge base config',
+              error: message,
+              scope: buildKnowledgeScopePayload(scope),
             },
-            { status: 500 },
+            { status },
           )
         }
       },
@@ -32,23 +43,28 @@ export const Route = createFileRoute('/api/knowledge/config')({
         if (!isAuthenticated(request)) {
           return json({ error: 'Unauthorized' }, { status: 401 })
         }
+        const instance = await resolveRequestHermesInstance(request)
+        const scope = buildKnowledgeScopeForInstance(instance)
         try {
           const body = (await request.json()) as Partial<KnowledgeBaseConfig>
-          const current = readKnowledgeBaseConfig()
+          const current = await readKnowledgeBaseConfigForScope(scope)
           const next: KnowledgeBaseConfig = {
             source: body.source ?? current.source,
           }
-          writeKnowledgeBaseConfig(next)
-          return json({ config: next })
+          const config = await writeKnowledgeBaseConfigForScope(scope, next)
+          return json({ config, scope: buildKnowledgeScopePayload(scope) })
         } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : 'Failed to save knowledge base config'
+          const status = /unavailable/i.test(message) ? 503 : 500
           return json(
             {
-              error:
-                error instanceof Error
-                  ? error.message
-                  : 'Failed to save knowledge base config',
+              error: message,
+              scope: buildKnowledgeScopePayload(scope),
             },
-            { status: 500 },
+            { status },
           )
         }
       },

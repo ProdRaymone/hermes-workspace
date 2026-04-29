@@ -10,6 +10,7 @@ import {
 } from '@hugeicons/core-free-icons'
 import { memo, useMemo } from 'react'
 import { getMessageTimestamp } from '../../utils'
+import { getLastSessionStorageKey } from '../../chat-screen-utils'
 import type { SessionMeta } from '../../types'
 import { cn } from '@/lib/utils'
 import {
@@ -27,6 +28,7 @@ type SessionItemProps = {
   onTogglePin: (session: SessionMeta) => void
   onRename: (session: SessionMeta) => void
   onDelete: (session: SessionMeta) => void
+  instanceId?: string
 }
 
 const dayFormatter = new Intl.DateTimeFormat(undefined, {
@@ -101,6 +103,7 @@ function SessionItemComponent({
   onTogglePin,
   onRename,
   onDelete,
+  instanceId = 'default',
 }: SessionItemProps) {
   const isGenerating = session.titleStatus === 'generating'
   const isError = session.titleStatus === 'error'
@@ -129,7 +132,10 @@ function SessionItemComponent({
       params={{ sessionKey: session.friendlyId }}
       onClick={() => {
         try {
-          localStorage.setItem('hermes-last-session', session.friendlyId)
+          localStorage.setItem(
+            getLastSessionStorageKey(instanceId),
+            session.friendlyId,
+          )
         } catch {}
         onSelect?.()
       }}
@@ -229,6 +235,7 @@ function areSessionItemsEqual(prev: SessionItemProps, next: SessionItemProps) {
   if (prev.onTogglePin !== next.onTogglePin) return false
   if (prev.onRename !== next.onRename) return false
   if (prev.onDelete !== next.onDelete) return false
+  if (prev.instanceId !== next.instanceId) return false
   if (prev.session === next.session) return true
   return (
     prev.session.key === next.session.key &&

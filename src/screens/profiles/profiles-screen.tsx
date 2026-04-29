@@ -14,6 +14,7 @@ import {
   SparklesIcon,
   UserGroupIcon,
 } from '@hugeicons/core-free-icons'
+import { HermesInstancesSection } from './profiles-instances-section'
 import { Button } from '@/components/ui/button'
 import { DialogContent, DialogRoot, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -294,6 +295,8 @@ export function ProfilesScreen() {
           Create profile
         </Button>
       </div>
+
+      <HermesInstancesSection />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {sorted.map((profile) => {

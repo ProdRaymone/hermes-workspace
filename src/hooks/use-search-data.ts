@@ -7,6 +7,8 @@ import { useQuery } from '@tanstack/react-query'
 // Activity events disabled in search — SSE connection caused freezing
 // import { useActivityEvents } from '@/screens/activity/use-activity-events'
 import { useFeatureAvailable } from '@/hooks/use-feature-available'
+import { useHermesInstances } from '@/hooks/use-hermes-instances'
+import { buildInstanceApiPath } from '@/lib/hermes-instance-scope'
 
 const REQUEST_TIMEOUT_MS = 3_000
 const SESSIONS_STALE_TIME_MS = 60_000
@@ -150,11 +152,27 @@ function flattenFileTree(
   return flattened
 }
 
+export function buildSearchSessionsPath(instanceId?: string | null): string {
+  return buildInstanceApiPath('/api/sessions', instanceId)
+}
+
+export function buildSearchSkillsPath(instanceId?: string | null): string {
+  return buildInstanceApiPath(
+    '/api/skills?summary=search&limit=120',
+    instanceId,
+  )
+}
+
+export function shouldFetchScopedSkills(instanceId?: string | null): boolean {
+  return Boolean((instanceId || 'default').trim())
+}
+
 async function fetchSessions(
+  instanceId?: string,
   querySignal?: AbortSignal,
 ): Promise<Array<SearchSession>> {
   const data = await fetchJsonWithTimeout<SessionsApiResponse>(
-    '/api/sessions',
+    buildSearchSessionsPath(instanceId),
     querySignal,
   )
   if (!data) return []
@@ -186,10 +204,11 @@ async function fetchFiles(
 }
 
 async function fetchSkills(
+  instanceId?: string,
   querySignal?: AbortSignal,
 ): Promise<Array<SearchSkill>> {
   const data = await fetchJsonWithTimeout<SkillsApiResponse>(
-    '/api/skills?summary=search&limit=120',
+    buildSearchSkillsPath(instanceId),
     querySignal,
   )
   if (!data) return []
@@ -208,13 +227,15 @@ async function fetchSkills(
 }
 
 export function useSearchData(scope: SearchQueryScope) {
-  const sessionsAvailable = useFeatureAvailable('sessions')
-  const skillsAvailable = useFeatureAvailable('skills')
+  const { activeInstanceId } = useHermesInstances()
+  const sessionsAvailable = useFeatureAvailable('sessions', activeInstanceId)
+  const skillsAvailable = useFeatureAvailable('skills', activeInstanceId)
+  const canFetchSkills = shouldFetchScopedSkills(activeInstanceId)
 
   // Sessions
   const sessionsQuery = useQuery({
-    queryKey: ['search', 'sessions'],
-    queryFn: ({ signal }) => fetchSessions(signal),
+    queryKey: ['search', 'sessions', activeInstanceId],
+    queryFn: ({ signal }) => fetchSessions(activeInstanceId, signal),
     enabled: sessionsAvailable && (scope === 'all' || scope === 'chats'),
     staleTime: SESSIONS_STALE_TIME_MS,
     gcTime: SEARCH_QUERY_GC_TIME_MS,
@@ -237,9 +258,12 @@ export function useSearchData(scope: SearchQueryScope) {
 
   // Skills
   const skillsQuery = useQuery({
-    queryKey: ['search', 'skills'],
-    queryFn: ({ signal }) => fetchSkills(signal),
-    enabled: skillsAvailable && (scope === 'all' || scope === 'skills'),
+    queryKey: ['search', 'skills', activeInstanceId],
+    queryFn: ({ signal }) => fetchSkills(activeInstanceId, signal),
+    enabled:
+      canFetchSkills &&
+      skillsAvailable &&
+      (scope === 'all' || scope === 'skills'),
     staleTime: SKILLS_STALE_TIME_MS,
     gcTime: SEARCH_QUERY_GC_TIME_MS,
     retry: false,

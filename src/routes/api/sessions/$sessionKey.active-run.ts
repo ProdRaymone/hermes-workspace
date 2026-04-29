@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json } from '@tanstack/react-start'
 import { isAuthenticated } from '../../../server/auth-middleware'
+import { resolveRequestHermesInstance } from '../../../server/hermes-instances'
 import { getActiveRunForSession } from '../../../server/run-store'
 
 export const Route = createFileRoute('/api/sessions/$sessionKey/active-run')({
@@ -11,7 +12,7 @@ export const Route = createFileRoute('/api/sessions/$sessionKey/active-run')({
           return json({ ok: false, error: 'Unauthorized' }, { status: 401 })
         }
 
-        const sessionKey = params.sessionKey?.trim()
+        const sessionKey = params.sessionKey.trim()
         if (!sessionKey) {
           return json(
             { ok: false, error: 'sessionKey required' },
@@ -20,8 +21,9 @@ export const Route = createFileRoute('/api/sessions/$sessionKey/active-run')({
         }
 
         try {
-          const run = await getActiveRunForSession(sessionKey)
-          return json({ ok: true, run })
+          const instance = await resolveRequestHermesInstance(request)
+          const run = await getActiveRunForSession(sessionKey, instance.id)
+          return json({ ok: true, run, instance: instance.id })
         } catch (err) {
           return json(
             {

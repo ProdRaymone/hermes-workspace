@@ -5,16 +5,18 @@ import { isAuthenticated } from '../../server/auth-middleware'
 import { requireJsonContentType } from '../../server/rate-limit'
 import {
   SESSIONS_API_UNAVAILABLE_MESSAGE,
-  createSession,
-  deleteSession,
-  ensureGatewayProbed,
-  getGatewayCapabilities,
-  listSessions,
   toSessionSummary,
-  updateSession,
 } from '../../server/hermes-api'
-import { createCapabilityUnavailablePayload } from '@/lib/feature-gates'
 import { listLocalSessions } from '../../server/local-session-store'
+import { resolveRequestHermesInstance } from '../../server/hermes-instances'
+import {
+  createInstanceSession,
+  deleteInstanceSession,
+  listInstanceSessions,
+  probeInstanceCapabilities,
+  updateInstanceSession,
+} from '../../server/hermes-instance-api'
+import { createCapabilityUnavailablePayload } from '@/lib/feature-gates'
 
 export const Route = createFileRoute('/api/sessions')({
   server: {
@@ -24,7 +26,8 @@ export const Route = createFileRoute('/api/sessions')({
         if (!isAuthenticated(request)) {
           return json({ ok: false, error: 'Unauthorized' }, { status: 401 })
         }
-        const capabilities = await ensureGatewayProbed()
+        const instance = await resolveRequestHermesInstance(request)
+        const capabilities = await probeInstanceCapabilities(instance)
         if (!capabilities.sessions) {
           return json({
             ok: true,
@@ -35,12 +38,14 @@ export const Route = createFileRoute('/api/sessions')({
         }
 
         try {
-          const sessions = await listSessions(50, 0)
+          const sessions = await listInstanceSessions(instance, 50, 0)
           const gatewaySessions = sessions.map(toSessionSummary)
 
           // Merge local portable sessions (Ollama, Atomic Chat, etc.)
           const localSessions = listLocalSessions()
-          const gatewayIds = new Set(gatewaySessions.map((s: any) => s.key || s.id))
+          const gatewayIds = new Set(
+            gatewaySessions.map((s: any) => s.key || s.id),
+          )
           for (const ls of localSessions) {
             if (!gatewayIds.has(ls.id)) {
               gatewaySessions.push({
@@ -56,7 +61,7 @@ export const Route = createFileRoute('/api/sessions')({
             }
           }
 
-          return json({ sessions: gatewaySessions })
+          return json({ sessions: gatewaySessions, instance: instance.id })
         } catch (err) {
           return json(
             {
@@ -72,7 +77,8 @@ export const Route = createFileRoute('/api/sessions')({
         }
         const csrfCheckPost = requireJsonContentType(request)
         if (csrfCheckPost) return csrfCheckPost
-        const capabilities = await ensureGatewayProbed()
+        const instance = await resolveRequestHermesInstance(request)
+        const capabilities = await probeInstanceCapabilities(instance)
         if (!capabilities.sessions) {
           const friendlyId = randomUUID()
           return json({
@@ -101,29 +107,7 @@ export const Route = createFileRoute('/api/sessions')({
             typeof body.model === 'string' ? body.model.trim() : ''
           const model = requestedModel || undefined
 
-          if (capabilities.dashboard.available && !capabilities.enhancedChat) {
-            return json({
-              ok: true,
-              sessionKey: friendlyId,
-              friendlyId,
-              entry: {
-                key: friendlyId,
-                id: friendlyId,
-                title: label || friendlyId,
-                label: label || friendlyId,
-                derivedTitle: label || friendlyId,
-                model: model || '',
-                startedAt: Date.now(),
-                updatedAt: Date.now(),
-                message_count: 0,
-                source: 'dashboard',
-              },
-              modelApplied: Boolean(model),
-              persisted: false,
-            })
-          }
-
-          const session = await createSession({
+          const session = await createInstanceSession(instance, {
             id: friendlyId || randomUUID(),
             title: label,
             model,
@@ -135,6 +119,7 @@ export const Route = createFileRoute('/api/sessions')({
             friendlyId: session.id,
             entry: toSessionSummary(session),
             modelApplied: true,
+            instance: instance.id,
           })
         } catch (err) {
           return json(
@@ -152,7 +137,8 @@ export const Route = createFileRoute('/api/sessions')({
         }
         const csrfCheckPatch = requireJsonContentType(request)
         if (csrfCheckPatch) return csrfCheckPatch
-        const capabilities = await ensureGatewayProbed()
+        const instance = await resolveRequestHermesInstance(request)
+        const capabilities = await probeInstanceCapabilities(instance)
         if (!capabilities.sessions) {
           const body = (await request.json().catch(() => ({}))) as Record<
             string,
@@ -193,23 +179,7 @@ export const Route = createFileRoute('/api/sessions')({
             )
           }
 
-          if (capabilities.dashboard.available && !capabilities.enhancedChat) {
-            return json({
-              ok: true,
-              sessionKey,
-              entry: {
-                key: sessionKey,
-                id: sessionKey,
-                title: label || sessionKey,
-                label: label || sessionKey,
-                derivedTitle: label || sessionKey,
-                updatedAt: Date.now(),
-              },
-              updated: false,
-            })
-          }
-
-          const session = await updateSession(sessionKey, {
+          const session = await updateInstanceSession(instance, sessionKey, {
             title: label,
           })
 
@@ -217,6 +187,7 @@ export const Route = createFileRoute('/api/sessions')({
             ok: true,
             sessionKey,
             entry: toSessionSummary(session),
+            instance: instance.id,
           })
         } catch (err) {
           return json(
@@ -232,7 +203,8 @@ export const Route = createFileRoute('/api/sessions')({
         if (!isAuthenticated(request)) {
           return json({ ok: false, error: 'Unauthorized' }, { status: 401 })
         }
-        const capabilities = await ensureGatewayProbed()
+        const instance = await resolveRequestHermesInstance(request)
+        const capabilities = await probeInstanceCapabilities(instance)
         if (!capabilities.sessions) {
           const url = new URL(request.url)
           const rawSessionKey = url.searchParams.get('sessionKey') ?? ''
@@ -259,9 +231,9 @@ export const Route = createFileRoute('/api/sessions')({
             )
           }
 
-          await deleteSession(sessionKey)
+          await deleteInstanceSession(instance, sessionKey)
 
-          return json({ ok: true, sessionKey })
+          return json({ ok: true, sessionKey, instance: instance.id })
         } catch (err) {
           return json(
             {

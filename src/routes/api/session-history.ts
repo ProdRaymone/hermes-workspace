@@ -8,17 +8,19 @@ import { createFileRoute } from '@tanstack/react-router'
 import { json } from '@tanstack/react-start'
 import {
   SESSIONS_API_UNAVAILABLE_MESSAGE,
-  ensureGatewayProbed,
-  getGatewayCapabilities,
-  getMessages,
   toChatMessage,
 } from '../../server/hermes-api'
 import { resolveSessionKey } from '../../server/session-utils'
-import { isAuthenticated } from '@/server/auth-middleware'
 import {
   getLocalMessages,
   getLocalSession,
 } from '../../server/local-session-store'
+import { resolveRequestHermesInstance } from '../../server/hermes-instances'
+import {
+  getInstanceMessages,
+  probeInstanceCapabilities,
+} from '../../server/hermes-instance-api'
+import { isAuthenticated } from '@/server/auth-middleware'
 
 export const Route = createFileRoute('/api/session-history')({
   server: {
@@ -27,7 +29,8 @@ export const Route = createFileRoute('/api/session-history')({
         if (!isAuthenticated(request)) {
           return json({ ok: false, error: 'Unauthorized' }, { status: 401 })
         }
-        await ensureGatewayProbed()
+        const instance = await resolveRequestHermesInstance(request)
+        const capabilities = await probeInstanceCapabilities(instance)
         const url = new URL(request.url)
         const key =
           url.searchParams.get('key')?.trim() ||
@@ -44,7 +47,7 @@ export const Route = createFileRoute('/api/session-history')({
           const messages = getLocalMessages(key).slice(-limit)
           return json({ ok: true, messages, sessionKey: key, source: 'local' })
         }
-        if (!getGatewayCapabilities().sessions) {
+        if (!capabilities.sessions) {
           return json({
             ok: false,
             messages: [],
@@ -58,7 +61,7 @@ export const Route = createFileRoute('/api/session-history')({
             defaultKey: 'main',
           })
           void includeTools
-          const rows = await getMessages(resolved.sessionKey)
+          const rows = await getInstanceMessages(instance, resolved.sessionKey)
           const trimmed = rows.slice(-limit)
           return json({
             ok: true,

@@ -10,6 +10,10 @@ import {
   RefreshIcon,
   Settings01Icon,
 } from '@hugeicons/core-free-icons'
+import {
+  buildOnboardingApiPath,
+  getOnboardingBackendScope,
+} from './onboarding-scope'
 import type { OnboardingStepComponentProps } from './onboarding-steps'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -27,6 +31,8 @@ type HermesConfigResponse = {
 
 type ConnectionStatus = 'checking' | 'connected' | 'disconnected'
 
+const ONBOARDING_BACKEND_SCOPE = getOnboardingBackendScope()
+
 export function ConnectionCheckStep({
   setCanProceed,
 }: OnboardingStepComponentProps) {
@@ -38,7 +44,7 @@ export function ConnectionCheckStep({
     setLastError(null)
 
     try {
-      const response = await fetch('/api/auth-check', {
+      const response = await fetch(buildOnboardingApiPath('/api/auth-check'), {
         signal: AbortSignal.timeout(5000),
       })
       const data = (await response.json()) as AuthCheckResponse
@@ -102,10 +108,10 @@ export function ConnectionCheckStep({
 
       <p className="mb-6 max-w-md text-base leading-relaxed text-primary-600">
         {status === 'connected'
-          ? 'Your backend is reachable and ready for setup.'
+          ? `${ONBOARDING_BACKEND_SCOPE.label} is reachable and ready for Workspace setup.`
           : status === 'checking'
-            ? 'Checking whether an OpenAI-compatible backend is available...'
-            : 'No compatible backend is connected yet.'}
+            ? `Checking ${ONBOARDING_BACKEND_SCOPE.label} for Workspace setup...`
+            : `${ONBOARDING_BACKEND_SCOPE.label} is not connected yet.`}
       </p>
 
       {status === 'disconnected' && (
@@ -168,9 +174,12 @@ export function ModelConfigurationStep({
 
     async function loadConfig() {
       try {
-        const response = await fetch('/api/hermes-config', {
-          signal: AbortSignal.timeout(5000),
-        })
+        const response = await fetch(
+          buildOnboardingApiPath('/api/hermes-config'),
+          {
+            signal: AbortSignal.timeout(5000),
+          },
+        )
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)
         }

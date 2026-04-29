@@ -8,7 +8,10 @@ import {
 } from '@hugeicons/core-free-icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { HermesInstanceScopeBanner } from '@/components/hermes-instance-scope-banner'
 import { toast } from '@/components/ui/toast'
+import { useHermesInstances } from '@/hooks/use-hermes-instances'
+import { buildInstanceApiPath } from '@/lib/hermes-instance-scope'
 import { cn } from '@/lib/utils'
 
 type MemoryFileMeta = {
@@ -24,16 +27,40 @@ type MemorySearchMatch = {
   text: string
 }
 
-type ListResponse = { files?: Array<MemoryFileMeta> }
-type ReadResponse = { path?: string; content?: string }
-type SearchResponse = { results?: Array<MemorySearchMatch> }
+type MemoryScopeResponse = {
+  instance?: string
+  label?: string
+  kind?: string
+  storage?: string
+}
+type ListResponse = {
+  files?: Array<MemoryFileMeta>
+  scope?: MemoryScopeResponse
+}
+type ReadResponse = {
+  path?: string
+  content?: string
+  scope?: MemoryScopeResponse
+}
+type SearchResponse = {
+  results?: Array<MemorySearchMatch>
+  scope?: MemoryScopeResponse
+}
 type WriteResponse = { success?: boolean; path?: string; error?: string }
 
 async function readJson<T>(url: string): Promise<T> {
   const response = await fetch(url)
   if (!response.ok) {
     const text = await response.text().catch(() => '')
-    throw new Error(text || `Request failed (${response.status})`)
+    let payload: { error?: string } = {}
+    try {
+      payload = text ? (JSON.parse(text) as { error?: string }) : {}
+    } catch {
+      payload = {}
+    }
+    throw new Error(
+      payload.error || text || `Request failed (${response.status})`,
+    )
   }
   return (await response.json()) as T
 }
@@ -115,40 +142,60 @@ export function MemoryBrowserScreen() {
   const [isSaving, setIsSaving] = useState(false)
   const lineRefs = useRef<Record<number, HTMLDivElement | null>>({})
   const queryClient = useQueryClient()
+  const { activeInstance, activeInstanceId } = useHermesInstances()
   const searchTerm = deferredSearch.trim()
 
   const filesQuery = useQuery({
-    queryKey: ['memory', 'list'],
-    queryFn: () => readJson<ListResponse>('/api/memory/list'),
+    queryKey: ['memory', 'list', activeInstanceId],
+    queryFn: () =>
+      readJson<ListResponse>(
+        buildInstanceApiPath('/api/memory/list', activeInstanceId),
+      ),
   })
 
   const files = filesQuery.data?.files ?? []
   const { rootMemory, memoryFiles } = useMemo(() => splitFiles(files), [files])
+  const fileItems = useMemo(() => {
+    const items: Array<MemoryFileMeta> = []
+    if (rootMemory) items.push(rootMemory)
+    items.push(...memoryFiles)
+    return items
+  }, [rootMemory, memoryFiles])
 
   useEffect(() => {
-    if (selectedPath) return
-    if (rootMemory) {
-      setSelectedPath(rootMemory.path)
+    if (!filesQuery.isSuccess) return
+    const nextFile = rootMemory || memoryFiles.at(0) || null
+    const nextPath = nextFile ? nextFile.path : null
+    if (!selectedPath) {
+      setSelectedPath(nextPath)
       return
     }
-    if (memoryFiles[0]) setSelectedPath(memoryFiles[0].path)
-  }, [selectedPath, rootMemory, memoryFiles])
+    if (!fileItems.some((file) => file.path === selectedPath)) {
+      setSelectedPath(nextPath)
+    }
+  }, [fileItems, filesQuery.isSuccess, memoryFiles, rootMemory, selectedPath])
 
   const contentQuery = useQuery({
-    queryKey: ['memory', 'read', selectedPath],
+    queryKey: ['memory', 'read', activeInstanceId, selectedPath],
     queryFn: () =>
       readJson<ReadResponse>(
-        `/api/memory/read?path=${encodeURIComponent(selectedPath || '')}`,
+        buildInstanceApiPath(
+          `/api/memory/read?path=${encodeURIComponent(selectedPath || '')}`,
+          activeInstanceId,
+        ),
       ),
     enabled: Boolean(selectedPath),
   })
 
   const searchEnabled = searchTerm.length > 0
   const searchQuery = useQuery({
-    queryKey: ['memory', 'search', searchTerm],
+    queryKey: ['memory', 'search', activeInstanceId, searchTerm],
     queryFn: () =>
       readJson<SearchResponse>(
-        `/api/memory/search?q=${encodeURIComponent(searchTerm)}`,
+        buildInstanceApiPath(
+          `/api/memory/search?q=${encodeURIComponent(searchTerm)}`,
+          activeInstanceId,
+        ),
       ),
     enabled: searchEnabled,
   })
@@ -169,12 +216,6 @@ export function MemoryBrowserScreen() {
     target.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [focusLine, lines, selectedPath])
 
-  const fileItems = useMemo(() => {
-    const items: Array<MemoryFileMeta> = []
-    if (rootMemory) items.push(rootMemory)
-    items.push(...memoryFiles)
-    return items
-  }, [rootMemory, memoryFiles])
   const selectedFileMeta = useMemo(
     () => fileItems.find((file) => file.path === selectedPath) ?? null,
     [fileItems, selectedPath],
@@ -220,11 +261,14 @@ export function MemoryBrowserScreen() {
     if (!selectedPath || isSaving) return
     setIsSaving(true)
     try {
-      const response = await fetch('/api/memory/write', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: selectedPath, content: draftContent }),
-      })
+      const response = await fetch(
+        buildInstanceApiPath('/api/memory/write', activeInstanceId),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: selectedPath, content: draftContent }),
+        },
+      )
       const payload = (await response.json().catch(() => ({}))) as WriteResponse
       if (!response.ok || !payload.success) {
         throw new Error(payload.error || `Save failed (${response.status})`)
@@ -289,6 +333,13 @@ export function MemoryBrowserScreen() {
             </div>
           </div>
         </div>
+        <HermesInstanceScopeBanner
+          className="mt-3"
+          instance={activeInstance}
+          scopeKind="instance-scoped"
+          title="Memory scope"
+          detail="Memory browser reads the selected Hermes profile's memory files. Hermes1/default keeps the legacy local root; Hermes2 and Hermes3 use their WSL profile roots."
+        />
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 md:grid-cols-3 md:p-4">

@@ -2,15 +2,20 @@ import { createFileRoute } from '@tanstack/react-router'
 import { json } from '@tanstack/react-start'
 import {
   SESSIONS_API_UNAVAILABLE_MESSAGE,
-  ensureGatewayProbed,
-  getGatewayCapabilities,
-  getMessages,
-  listSessions,
   toChatMessage,
 } from '../../server/hermes-api'
 import { resolveSessionKey } from '../../server/session-utils'
+import {
+  getLocalMessages,
+  getLocalSession,
+} from '../../server/local-session-store'
+import { resolveRequestHermesInstance } from '../../server/hermes-instances'
+import {
+  getInstanceMessages,
+  listInstanceSessions,
+  probeInstanceCapabilities,
+} from '../../server/hermes-instance-api'
 import { isAuthenticated } from '@/server/auth-middleware'
-import { getLocalSession, getLocalMessages } from '../../server/local-session-store'
 
 export const Route = createFileRoute('/api/history')({
   server: {
@@ -19,8 +24,9 @@ export const Route = createFileRoute('/api/history')({
         if (!isAuthenticated(request)) {
           return json({ ok: false, error: 'Unauthorized' }, { status: 401 })
         }
-        await ensureGatewayProbed()
-        if (!getGatewayCapabilities().sessions) {
+        const instance = await resolveRequestHermesInstance(request)
+        const capabilities = await probeInstanceCapabilities(instance)
+        if (!capabilities.sessions) {
           return json({
             sessionKey: 'new',
             sessionId: 'new',
@@ -57,12 +63,15 @@ export const Route = createFileRoute('/api/history')({
           // orchestrator chat doesn't latch onto runtime junk.
           if (sessionKey === 'main') {
             try {
-              const sessions = await listSessions(30, 0)
+              const sessions = await listInstanceSessions(instance, 30, 0)
               const isInternalKey = (id: string) =>
                 id.startsWith('cron_') ||
                 id.startsWith('cron:') ||
                 id.startsWith('agent:main:ops-')
-              const hasRealTitle = (s: { id: string; title?: string | null }) => {
+              const hasRealTitle = (s: {
+                id: string
+                title?: string | null
+              }) => {
                 const t = (s.title ?? '').trim()
                 return t.length > 0 && t !== s.id
               }
@@ -91,9 +100,9 @@ export const Route = createFileRoute('/api/history')({
               return json({ sessionKey: 'new', sessionId: 'new', messages: [] })
             }
           }
-          let messages: Awaited<ReturnType<typeof getMessages>> = []
+          let messages: Awaited<ReturnType<typeof getInstanceMessages>> = []
           try {
-            messages = await getMessages(sessionKey)
+            messages = await getInstanceMessages(instance, sessionKey)
           } catch {
             messages = []
           }
@@ -106,6 +115,7 @@ export const Route = createFileRoute('/api/history')({
               return json({
                 sessionKey,
                 sessionId: sessionKey,
+                instance: instance.id,
                 messages: localMessages.map((m, index) => ({
                   id: m.id,
                   role: m.role,
@@ -122,6 +132,7 @@ export const Route = createFileRoute('/api/history')({
           return json({
             sessionKey,
             sessionId: sessionKey,
+            instance: instance.id,
             messages: boundedMessages.map((message, index) =>
               toChatMessage(message, { historyIndex: index }),
             ),

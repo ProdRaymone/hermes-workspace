@@ -13,11 +13,12 @@ function deriveChatMode(capabilities: Record<string, boolean>): ChatMode {
   return 'disconnected'
 }
 
-export function useChatMode(): ChatMode {
+export function useChatMode(instanceId = 'default'): ChatMode {
   const { data } = useQuery({
-    queryKey: ['gateway-status'],
+    queryKey: ['gateway-status', instanceId],
     queryFn: async () => {
-      const res = await fetch('/api/gateway-status')
+      const query = new URLSearchParams({ instance: instanceId })
+      const res = await fetch(`/api/gateway-status?${query.toString()}`)
       if (!res.ok) return null
       return (await res.json()) as GatewayStatus
     },

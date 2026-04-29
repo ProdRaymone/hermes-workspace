@@ -47,6 +47,7 @@ import { Route as ApiPathsRouteImport } from './routes/api/paths'
 import { Route as ApiModelsRouteImport } from './routes/api/models'
 import { Route as ApiMemoryRouteImport } from './routes/api/memory'
 import { Route as ApiLocalProvidersRouteImport } from './routes/api/local-providers'
+import { Route as ApiInstancesRouteImport } from './routes/api/instances'
 import { Route as ApiHistoryRouteImport } from './routes/api/history'
 import { Route as ApiHermesTasksAssigneesRouteImport } from './routes/api/hermes-tasks-assignees'
 import { Route as ApiHermesTasksRouteImport } from './routes/api/hermes-tasks'
@@ -59,6 +60,8 @@ import { Route as ApiCrewStatusRouteImport } from './routes/api/crew-status'
 import { Route as ApiContextUsageRouteImport } from './routes/api/context-usage'
 import { Route as ApiConnectionStatusRouteImport } from './routes/api/connection-status'
 import { Route as ApiConnectionSettingsRouteImport } from './routes/api/connection-settings'
+import { Route as ApiConfigPatchRouteImport } from './routes/api/config-patch'
+import { Route as ApiConfigGetRouteImport } from './routes/api/config-get'
 import { Route as ApiConductorStopRouteImport } from './routes/api/conductor-stop'
 import { Route as ApiConductorSpawnRouteImport } from './routes/api/conductor-spawn'
 import { Route as ApiChatEventsRouteImport } from './routes/api/chat-events'
@@ -91,6 +94,8 @@ import { Route as ApiKnowledgeReadRouteImport } from './routes/api/knowledge/rea
 import { Route as ApiKnowledgeListRouteImport } from './routes/api/knowledge/list'
 import { Route as ApiKnowledgeGraphRouteImport } from './routes/api/knowledge/graph'
 import { Route as ApiKnowledgeConfigRouteImport } from './routes/api/knowledge/config'
+import { Route as ApiInstancesStartLogRouteImport } from './routes/api/instances/start-log'
+import { Route as ApiInstancesStartRouteImport } from './routes/api/instances/start'
 import { Route as ApiHermesTasksTaskIdRouteImport } from './routes/api/hermes-tasks.$taskId'
 import { Route as ApiHermesProxySplatRouteImport } from './routes/api/hermes-proxy/$'
 import { Route as ApiHermesJobsJobIdRouteImport } from './routes/api/hermes-jobs.$jobId'
@@ -287,6 +292,11 @@ const ApiLocalProvidersRoute = ApiLocalProvidersRouteImport.update({
   path: '/api/local-providers',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiInstancesRoute = ApiInstancesRouteImport.update({
+  id: '/api/instances',
+  path: '/api/instances',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiHistoryRoute = ApiHistoryRouteImport.update({
   id: '/api/history',
   path: '/api/history',
@@ -345,6 +355,16 @@ const ApiConnectionStatusRoute = ApiConnectionStatusRouteImport.update({
 const ApiConnectionSettingsRoute = ApiConnectionSettingsRouteImport.update({
   id: '/api/connection-settings',
   path: '/api/connection-settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiConfigPatchRoute = ApiConfigPatchRouteImport.update({
+  id: '/api/config-patch',
+  path: '/api/config-patch',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiConfigGetRoute = ApiConfigGetRouteImport.update({
+  id: '/api/config-get',
+  path: '/api/config-get',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiConductorStopRoute = ApiConductorStopRouteImport.update({
@@ -507,6 +527,16 @@ const ApiKnowledgeConfigRoute = ApiKnowledgeConfigRouteImport.update({
   path: '/api/knowledge/config',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiInstancesStartLogRoute = ApiInstancesStartLogRouteImport.update({
+  id: '/start-log',
+  path: '/start-log',
+  getParentRoute: () => ApiInstancesRoute,
+} as any)
+const ApiInstancesStartRoute = ApiInstancesStartRouteImport.update({
+  id: '/start',
+  path: '/start',
+  getParentRoute: () => ApiInstancesRoute,
+} as any)
 const ApiHermesTasksTaskIdRoute = ApiHermesTasksTaskIdRouteImport.update({
   id: '/$taskId',
   path: '/$taskId',
@@ -554,6 +584,8 @@ export interface FileRoutesByFullPath {
   '/api/chat-events': typeof ApiChatEventsRoute
   '/api/conductor-spawn': typeof ApiConductorSpawnRoute
   '/api/conductor-stop': typeof ApiConductorStopRoute
+  '/api/config-get': typeof ApiConfigGetRoute
+  '/api/config-patch': typeof ApiConfigPatchRoute
   '/api/connection-settings': typeof ApiConnectionSettingsRoute
   '/api/connection-status': typeof ApiConnectionStatusRoute
   '/api/context-usage': typeof ApiContextUsageRoute
@@ -566,6 +598,7 @@ export interface FileRoutesByFullPath {
   '/api/hermes-tasks': typeof ApiHermesTasksRouteWithChildren
   '/api/hermes-tasks-assignees': typeof ApiHermesTasksAssigneesRoute
   '/api/history': typeof ApiHistoryRoute
+  '/api/instances': typeof ApiInstancesRouteWithChildren
   '/api/local-providers': typeof ApiLocalProvidersRoute
   '/api/memory': typeof ApiMemoryRouteWithChildren
   '/api/models': typeof ApiModelsRoute
@@ -594,6 +627,8 @@ export interface FileRoutesByFullPath {
   '/api/hermes-jobs/$jobId': typeof ApiHermesJobsJobIdRoute
   '/api/hermes-proxy/$': typeof ApiHermesProxySplatRoute
   '/api/hermes-tasks/$taskId': typeof ApiHermesTasksTaskIdRoute
+  '/api/instances/start': typeof ApiInstancesStartRoute
+  '/api/instances/start-log': typeof ApiInstancesStartLogRoute
   '/api/knowledge/config': typeof ApiKnowledgeConfigRoute
   '/api/knowledge/graph': typeof ApiKnowledgeGraphRoute
   '/api/knowledge/list': typeof ApiKnowledgeListRoute
@@ -642,6 +677,8 @@ export interface FileRoutesByTo {
   '/api/chat-events': typeof ApiChatEventsRoute
   '/api/conductor-spawn': typeof ApiConductorSpawnRoute
   '/api/conductor-stop': typeof ApiConductorStopRoute
+  '/api/config-get': typeof ApiConfigGetRoute
+  '/api/config-patch': typeof ApiConfigPatchRoute
   '/api/connection-settings': typeof ApiConnectionSettingsRoute
   '/api/connection-status': typeof ApiConnectionStatusRoute
   '/api/context-usage': typeof ApiContextUsageRoute
@@ -654,6 +691,7 @@ export interface FileRoutesByTo {
   '/api/hermes-tasks': typeof ApiHermesTasksRouteWithChildren
   '/api/hermes-tasks-assignees': typeof ApiHermesTasksAssigneesRoute
   '/api/history': typeof ApiHistoryRoute
+  '/api/instances': typeof ApiInstancesRouteWithChildren
   '/api/local-providers': typeof ApiLocalProvidersRoute
   '/api/memory': typeof ApiMemoryRouteWithChildren
   '/api/models': typeof ApiModelsRoute
@@ -682,6 +720,8 @@ export interface FileRoutesByTo {
   '/api/hermes-jobs/$jobId': typeof ApiHermesJobsJobIdRoute
   '/api/hermes-proxy/$': typeof ApiHermesProxySplatRoute
   '/api/hermes-tasks/$taskId': typeof ApiHermesTasksTaskIdRoute
+  '/api/instances/start': typeof ApiInstancesStartRoute
+  '/api/instances/start-log': typeof ApiInstancesStartLogRoute
   '/api/knowledge/config': typeof ApiKnowledgeConfigRoute
   '/api/knowledge/graph': typeof ApiKnowledgeGraphRoute
   '/api/knowledge/list': typeof ApiKnowledgeListRoute
@@ -732,6 +772,8 @@ export interface FileRoutesById {
   '/api/chat-events': typeof ApiChatEventsRoute
   '/api/conductor-spawn': typeof ApiConductorSpawnRoute
   '/api/conductor-stop': typeof ApiConductorStopRoute
+  '/api/config-get': typeof ApiConfigGetRoute
+  '/api/config-patch': typeof ApiConfigPatchRoute
   '/api/connection-settings': typeof ApiConnectionSettingsRoute
   '/api/connection-status': typeof ApiConnectionStatusRoute
   '/api/context-usage': typeof ApiContextUsageRoute
@@ -744,6 +786,7 @@ export interface FileRoutesById {
   '/api/hermes-tasks': typeof ApiHermesTasksRouteWithChildren
   '/api/hermes-tasks-assignees': typeof ApiHermesTasksAssigneesRoute
   '/api/history': typeof ApiHistoryRoute
+  '/api/instances': typeof ApiInstancesRouteWithChildren
   '/api/local-providers': typeof ApiLocalProvidersRoute
   '/api/memory': typeof ApiMemoryRouteWithChildren
   '/api/models': typeof ApiModelsRoute
@@ -772,6 +815,8 @@ export interface FileRoutesById {
   '/api/hermes-jobs/$jobId': typeof ApiHermesJobsJobIdRoute
   '/api/hermes-proxy/$': typeof ApiHermesProxySplatRoute
   '/api/hermes-tasks/$taskId': typeof ApiHermesTasksTaskIdRoute
+  '/api/instances/start': typeof ApiInstancesStartRoute
+  '/api/instances/start-log': typeof ApiInstancesStartLogRoute
   '/api/knowledge/config': typeof ApiKnowledgeConfigRoute
   '/api/knowledge/graph': typeof ApiKnowledgeGraphRoute
   '/api/knowledge/list': typeof ApiKnowledgeListRoute
@@ -823,6 +868,8 @@ export interface FileRouteTypes {
     | '/api/chat-events'
     | '/api/conductor-spawn'
     | '/api/conductor-stop'
+    | '/api/config-get'
+    | '/api/config-patch'
     | '/api/connection-settings'
     | '/api/connection-status'
     | '/api/context-usage'
@@ -835,6 +882,7 @@ export interface FileRouteTypes {
     | '/api/hermes-tasks'
     | '/api/hermes-tasks-assignees'
     | '/api/history'
+    | '/api/instances'
     | '/api/local-providers'
     | '/api/memory'
     | '/api/models'
@@ -863,6 +911,8 @@ export interface FileRouteTypes {
     | '/api/hermes-jobs/$jobId'
     | '/api/hermes-proxy/$'
     | '/api/hermes-tasks/$taskId'
+    | '/api/instances/start'
+    | '/api/instances/start-log'
     | '/api/knowledge/config'
     | '/api/knowledge/graph'
     | '/api/knowledge/list'
@@ -911,6 +961,8 @@ export interface FileRouteTypes {
     | '/api/chat-events'
     | '/api/conductor-spawn'
     | '/api/conductor-stop'
+    | '/api/config-get'
+    | '/api/config-patch'
     | '/api/connection-settings'
     | '/api/connection-status'
     | '/api/context-usage'
@@ -923,6 +975,7 @@ export interface FileRouteTypes {
     | '/api/hermes-tasks'
     | '/api/hermes-tasks-assignees'
     | '/api/history'
+    | '/api/instances'
     | '/api/local-providers'
     | '/api/memory'
     | '/api/models'
@@ -951,6 +1004,8 @@ export interface FileRouteTypes {
     | '/api/hermes-jobs/$jobId'
     | '/api/hermes-proxy/$'
     | '/api/hermes-tasks/$taskId'
+    | '/api/instances/start'
+    | '/api/instances/start-log'
     | '/api/knowledge/config'
     | '/api/knowledge/graph'
     | '/api/knowledge/list'
@@ -1000,6 +1055,8 @@ export interface FileRouteTypes {
     | '/api/chat-events'
     | '/api/conductor-spawn'
     | '/api/conductor-stop'
+    | '/api/config-get'
+    | '/api/config-patch'
     | '/api/connection-settings'
     | '/api/connection-status'
     | '/api/context-usage'
@@ -1012,6 +1069,7 @@ export interface FileRouteTypes {
     | '/api/hermes-tasks'
     | '/api/hermes-tasks-assignees'
     | '/api/history'
+    | '/api/instances'
     | '/api/local-providers'
     | '/api/memory'
     | '/api/models'
@@ -1040,6 +1098,8 @@ export interface FileRouteTypes {
     | '/api/hermes-jobs/$jobId'
     | '/api/hermes-proxy/$'
     | '/api/hermes-tasks/$taskId'
+    | '/api/instances/start'
+    | '/api/instances/start-log'
     | '/api/knowledge/config'
     | '/api/knowledge/graph'
     | '/api/knowledge/list'
@@ -1090,6 +1150,8 @@ export interface RootRouteChildren {
   ApiChatEventsRoute: typeof ApiChatEventsRoute
   ApiConductorSpawnRoute: typeof ApiConductorSpawnRoute
   ApiConductorStopRoute: typeof ApiConductorStopRoute
+  ApiConfigGetRoute: typeof ApiConfigGetRoute
+  ApiConfigPatchRoute: typeof ApiConfigPatchRoute
   ApiConnectionSettingsRoute: typeof ApiConnectionSettingsRoute
   ApiConnectionStatusRoute: typeof ApiConnectionStatusRoute
   ApiContextUsageRoute: typeof ApiContextUsageRoute
@@ -1102,6 +1164,7 @@ export interface RootRouteChildren {
   ApiHermesTasksRoute: typeof ApiHermesTasksRouteWithChildren
   ApiHermesTasksAssigneesRoute: typeof ApiHermesTasksAssigneesRoute
   ApiHistoryRoute: typeof ApiHistoryRoute
+  ApiInstancesRoute: typeof ApiInstancesRouteWithChildren
   ApiLocalProvidersRoute: typeof ApiLocalProvidersRoute
   ApiMemoryRoute: typeof ApiMemoryRouteWithChildren
   ApiModelsRoute: typeof ApiModelsRoute
@@ -1413,6 +1476,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiLocalProvidersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/instances': {
+      id: '/api/instances'
+      path: '/api/instances'
+      fullPath: '/api/instances'
+      preLoaderRoute: typeof ApiInstancesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/history': {
       id: '/api/history'
       path: '/api/history'
@@ -1495,6 +1565,20 @@ declare module '@tanstack/react-router' {
       path: '/api/connection-settings'
       fullPath: '/api/connection-settings'
       preLoaderRoute: typeof ApiConnectionSettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/config-patch': {
+      id: '/api/config-patch'
+      path: '/api/config-patch'
+      fullPath: '/api/config-patch'
+      preLoaderRoute: typeof ApiConfigPatchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/config-get': {
+      id: '/api/config-get'
+      path: '/api/config-get'
+      fullPath: '/api/config-get'
+      preLoaderRoute: typeof ApiConfigGetRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/conductor-stop': {
@@ -1721,6 +1805,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiKnowledgeConfigRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/instances/start-log': {
+      id: '/api/instances/start-log'
+      path: '/start-log'
+      fullPath: '/api/instances/start-log'
+      preLoaderRoute: typeof ApiInstancesStartLogRouteImport
+      parentRoute: typeof ApiInstancesRoute
+    }
+    '/api/instances/start': {
+      id: '/api/instances/start'
+      path: '/start'
+      fullPath: '/api/instances/start'
+      preLoaderRoute: typeof ApiInstancesStartRouteImport
+      parentRoute: typeof ApiInstancesRoute
+    }
     '/api/hermes-tasks/$taskId': {
       id: '/api/hermes-tasks/$taskId'
       path: '/$taskId'
@@ -1799,6 +1897,20 @@ const ApiHermesTasksRouteWithChildren = ApiHermesTasksRoute._addFileChildren(
   ApiHermesTasksRouteChildren,
 )
 
+interface ApiInstancesRouteChildren {
+  ApiInstancesStartRoute: typeof ApiInstancesStartRoute
+  ApiInstancesStartLogRoute: typeof ApiInstancesStartLogRoute
+}
+
+const ApiInstancesRouteChildren: ApiInstancesRouteChildren = {
+  ApiInstancesStartRoute: ApiInstancesStartRoute,
+  ApiInstancesStartLogRoute: ApiInstancesStartLogRoute,
+}
+
+const ApiInstancesRouteWithChildren = ApiInstancesRoute._addFileChildren(
+  ApiInstancesRouteChildren,
+)
+
 interface ApiMemoryRouteChildren {
   ApiMemoryListRoute: typeof ApiMemoryListRoute
   ApiMemoryReadRoute: typeof ApiMemoryReadRoute
@@ -1870,6 +1982,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiChatEventsRoute: ApiChatEventsRoute,
   ApiConductorSpawnRoute: ApiConductorSpawnRoute,
   ApiConductorStopRoute: ApiConductorStopRoute,
+  ApiConfigGetRoute: ApiConfigGetRoute,
+  ApiConfigPatchRoute: ApiConfigPatchRoute,
   ApiConnectionSettingsRoute: ApiConnectionSettingsRoute,
   ApiConnectionStatusRoute: ApiConnectionStatusRoute,
   ApiContextUsageRoute: ApiContextUsageRoute,
@@ -1882,6 +1996,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiHermesTasksRoute: ApiHermesTasksRouteWithChildren,
   ApiHermesTasksAssigneesRoute: ApiHermesTasksAssigneesRoute,
   ApiHistoryRoute: ApiHistoryRoute,
+  ApiInstancesRoute: ApiInstancesRouteWithChildren,
   ApiLocalProvidersRoute: ApiLocalProvidersRoute,
   ApiMemoryRoute: ApiMemoryRouteWithChildren,
   ApiModelsRoute: ApiModelsRoute,

@@ -6,17 +6,18 @@ import { json } from '@tanstack/react-start'
 import { createFileRoute } from '@tanstack/react-router'
 import { isAuthenticated } from '../../server/auth-middleware'
 import {
-  ensureGatewayProbed,
-  getGatewayCapabilities,
-} from '../../server/hermes-api'
-import { BEARER_TOKEN, HERMES_API } from '../../server/gateway-capabilities'
-import {
   ensureDiscovery,
-  getDiscoveredModels,
   ensureProviderInConfig,
+  getDiscoveredModels,
 } from '../../server/local-provider-discovery'
+import { resolveRequestHermesInstance } from '../../server/hermes-instances'
+import {
+  fetchInstanceModels,
+  probeInstanceCapabilities,
+} from '../../server/hermes-instance-api'
 
-const HERMES_HOME = process.env.HERMES_HOME ?? path.join(os.homedir(), '.hermes')
+const HERMES_HOME =
+  process.env.HERMES_HOME ?? path.join(os.homedir(), '.hermes')
 const MODELS_PATH = path.join(HERMES_HOME, 'models.json')
 const CONFIG_PATH = path.join(HERMES_HOME, 'config.yaml')
 
@@ -124,26 +125,6 @@ function readHermesDefaultModel(): ModelEntry | null {
   }
 }
 
-/**
- * Fallback: fetch models from the hermes-agent /v1/models endpoint.
- */
-async function fetchHermesModels(): Promise<Array<ModelEntry>> {
-  const headers: Record<string, string> = {}
-  if (BEARER_TOKEN) headers['Authorization'] = `Bearer ${BEARER_TOKEN}`
-  const response = await fetch(`${HERMES_API}/v1/models`, { headers })
-  if (!response.ok)
-    throw new Error(`Hermes models request failed (${response.status})`)
-  const payload = asRecord(await response.json())
-  const rawModels = Array.isArray(payload.data)
-    ? payload.data
-    : Array.isArray(payload.models)
-      ? payload.models
-      : []
-  return rawModels
-    .map(normalizeModel)
-    .filter((e): e is ModelEntry => e !== null)
-}
-
 export const Route = createFileRoute('/api/models')({
   server: {
     handlers: {
@@ -151,15 +132,21 @@ export const Route = createFileRoute('/api/models')({
         if (!isAuthenticated(request)) {
           return json({ ok: false, error: 'Unauthorized' }, { status: 401 })
         }
-        await ensureGatewayProbed()
 
         try {
-          // Primary: read user-configured models from ~/.hermes/models.json
-          let models = readHermesModelsJson()
-          let source = 'models.json'
+          const instance = await resolveRequestHermesInstance(request)
+          const capabilities = await probeInstanceCapabilities(instance)
+          let models: Array<ModelEntry> = []
+          let source = `instance:${instance.id}`
 
           // Ensure the default model from config.yaml is always included
-          const defaultModel = readHermesDefaultModel()
+          const defaultModel = instance.model
+            ? {
+                id: instance.model,
+                name: instance.model,
+                provider: instance.provider || 'unknown',
+              }
+            : readHermesDefaultModel()
           if (defaultModel) {
             const hasDefault = models.some((m) => m.id === defaultModel.id)
             if (!hasDefault) {
@@ -167,10 +154,20 @@ export const Route = createFileRoute('/api/models')({
             }
           }
 
-          // Fallback: if no models.json, fetch from hermes-agent /v1/models
-          if (models.length === 0 && getGatewayCapabilities().models) {
-            models = await fetchHermesModels()
-            source = 'hermes-agent'
+          if (capabilities.models) {
+            const gatewayModels = await fetchInstanceModels(instance)
+            const existingIds = new Set(models.map((m) => m.id))
+            for (const model of gatewayModels) {
+              if (model.id && !existingIds.has(model.id)) {
+                models.push(model)
+                existingIds.add(model.id)
+              }
+            }
+          }
+
+          if (models.length === 0) {
+            models = readHermesModelsJson()
+            source = 'models.json'
           }
 
           // Merge auto-discovered local models (Ollama, Atomic Chat, etc.)
@@ -202,6 +199,7 @@ export const Route = createFileRoute('/api/models')({
             models,
             configuredProviders,
             source,
+            instance: instance.id,
           })
         } catch (err) {
           return json(

@@ -20,6 +20,12 @@ import {
   useRef,
   useState,
 } from 'react'
+import { setLocalModelOverride } from '../chat-screen'
+import {
+  MODEL_SWITCH_BLOCKED_TOAST,
+  getZeroForkModelInfoFlags,
+  shouldBlockZeroForkModelSwitch,
+} from './chat-composer-model-switch'
 import type { CSSProperties, Ref } from 'react'
 
 import type { ModelCatalogEntry, ModelSwitchResponse } from '@/lib/model-types'
@@ -44,11 +50,7 @@ import { cn } from '@/lib/utils'
 import { useVoiceInput } from '@/hooks/use-voice-input'
 import { useVoiceRecorder } from '@/hooks/use-voice-recorder'
 import { toast } from '@/components/ui/toast'
-import {
-  getZeroForkModelInfoFlags,
-  MODEL_SWITCH_BLOCKED_TOAST,
-  shouldBlockZeroForkModelSwitch,
-} from './chat-composer-model-switch'
+import { getActiveHermesInstanceId } from '@/hooks/use-hermes-instances'
 
 type ChatComposerAttachment = {
   id: string
@@ -182,7 +184,8 @@ async function fetchModels(): Promise<{
   // actually configured and available (OCPlatform gateway + local providers).
   // Previously this hit /api/hermes-proxy/api/available-models which returned
   // every upstream provider model — flooding the picker with unusable options.
-  const response = await fetch('/api/models')
+  const query = new URLSearchParams({ instance: getActiveHermesInstanceId() })
+  const response = await fetch(`/api/models?${query.toString()}`)
   if (!response.ok) {
     throw new Error(`Models request failed (${response.status})`)
   }
@@ -261,14 +264,12 @@ async function fetchModelsForProvider(
   }
 
   const payload = (await response.json()) as HermesAvailableModelsResponse
-  return (payload.models || []).map((model) => ({
+  return payload.models.map((model) => ({
     id: model.id,
     name: model.id,
     provider: normalizedProvider,
   }))
 }
-
-import { setLocalModelOverride } from '../chat-screen'
 
 const LOCAL_PROVIDERS_SET = new Set(['ollama', 'atomic-chat'])
 
@@ -650,7 +651,8 @@ async function fetchCurrentModelFromStatus(): Promise<string> {
   const timeout = globalThis.setTimeout(() => controller.abort(), 7000)
 
   try {
-    const response = await fetch('/api/session-status', {
+    const query = new URLSearchParams({ instance: getActiveHermesInstanceId() })
+    const response = await fetch(`/api/session-status?${query.toString()}`, {
       signal: controller.signal,
     })
     if (!response.ok) {
@@ -677,7 +679,8 @@ async function fetchCurrentModelFromStatus(): Promise<string> {
 }
 
 async function fetchGatewayMode(): Promise<string | null> {
-  const response = await fetch('/api/gateway-status')
+  const query = new URLSearchParams({ instance: getActiveHermesInstanceId() })
+  const response = await fetch(`/api/gateway-status?${query.toString()}`)
   if (!response.ok) {
     throw new Error(await readResponseError(response))
   }
@@ -743,7 +746,7 @@ function ChatComposerComponent({
   } | null>(null)
   const [focusAfterSubmitTick, setFocusAfterSubmitTick] = useState(0)
   const { settings: composerSettings } = useSettings()
-  const chatNavMode = composerSettings.mobileChatNavMode ?? 'dock'
+  const chatNavMode = composerSettings.mobileChatNavMode
   const [isMobileViewport, setIsMobileViewport] = useState(() => {
     if (typeof window === 'undefined') return false
     return window.matchMedia('(max-width: 767px)').matches
@@ -1073,7 +1076,6 @@ function ChatComposerComponent({
     if (isMobileViewport) return
     // Only focus on focusKey change (session switch), not on every disabled toggle
     focusPrompt()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey, isMobileViewport])
 
   useLayoutEffect(() => {
@@ -2229,8 +2231,9 @@ function ChatComposerComponent({
                             const LOCAL_PROVIDER_IDS = ['ollama', 'atomic-chat']
                             const isLocal =
                               (typeof m !== 'string' &&
-                              (m as Record<string, unknown>).description ===
-                                'local') || LOCAL_PROVIDER_IDS.includes(mProvider)
+                                (m as Record<string, unknown>).description ===
+                                  'local') ||
+                              LOCAL_PROVIDER_IDS.includes(mProvider)
                             return {
                               id: mId,
                               name: mName,

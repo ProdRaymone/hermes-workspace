@@ -53,6 +53,7 @@ type UseAutoSessionTitleInput = {
   messages: Array<ChatMessage>
   messageCount?: number
   enabled: boolean
+  instanceId?: string
 }
 
 type UpdateTitlePayload = {
@@ -67,9 +68,10 @@ export function useAutoSessionTitle({
   activeSession,
   messages,
   enabled,
+  instanceId = 'default',
 }: UseAutoSessionTitleInput) {
   const queryClient = useQueryClient()
-  const titleInfo = useSessionTitleInfo(friendlyId)
+  const titleInfo = useSessionTitleInfo(friendlyId, instanceId)
   const lastAttemptRef = useRef<Record<string, string>>({})
 
   const proposedTitle = useMemo(() => {
@@ -122,14 +124,18 @@ export function useAutoSessionTitle({
     title: string,
     source: 'auto' | 'manual' = 'auto',
   ) => {
-    updateSessionTitleState(friendlyIdToUpdate, {
-      title,
-      source,
-      status: 'ready',
-      error: null,
-    })
+    updateSessionTitleState(
+      friendlyIdToUpdate,
+      {
+        title,
+        source,
+        status: 'ready',
+        error: null,
+      },
+      instanceId,
+    )
     queryClient.setQueryData(
-      chatQueryKeys.sessions,
+      chatQueryKeys.sessionsFor(instanceId),
       function updateSessions(existing: unknown) {
         if (!Array.isArray(existing)) return existing
         return existing.map((session) => {
@@ -156,7 +162,8 @@ export function useAutoSessionTitle({
 
   const mutation = useMutation({
     mutationFn: async (payload: UpdateTitlePayload) => {
-      const res = await fetch('/api/sessions', {
+      const query = new URLSearchParams({ instance: instanceId })
+      const res = await fetch(`/api/sessions?${query.toString()}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -176,10 +183,14 @@ export function useAutoSessionTitle({
       void queryClient.invalidateQueries({ queryKey: chatQueryKeys.sessions })
     },
     onError: (error, payload) => {
-      updateSessionTitleState(payload.friendlyId, {
-        status: 'error',
-        error: error instanceof Error ? error.message : String(error ?? ''),
-      })
+      updateSessionTitleState(
+        payload.friendlyId,
+        {
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        instanceId,
+      )
     },
   })
 
@@ -191,11 +202,23 @@ export function useAutoSessionTitle({
     const signature = `${sessionKey}:${proposedTitle}`
     if (lastAttemptRef.current[friendlyId] === signature) return
     lastAttemptRef.current[friendlyId] = signature
-    updateSessionTitleState(friendlyId, { status: 'generating', error: null })
+    updateSessionTitleState(
+      friendlyId,
+      { status: 'generating', error: null },
+      instanceId,
+    )
     mutate({
       friendlyId,
       sessionKey: sessionKey ?? friendlyId,
       title: proposedTitle,
     })
-  }, [friendlyId, isPending, mutate, proposedTitle, sessionKey, shouldGenerate])
+  }, [
+    friendlyId,
+    instanceId,
+    isPending,
+    mutate,
+    proposedTitle,
+    sessionKey,
+    shouldGenerate,
+  ])
 }

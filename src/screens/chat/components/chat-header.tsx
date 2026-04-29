@@ -1,6 +1,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Folder01Icon } from '@hugeicons/core-free-icons'
+import { HermesInstanceSwitcher } from './hermes-instance-switcher'
+import type { HermesInstanceSummary } from '@/hooks/use-hermes-instances'
 import { Button } from '@/components/ui/button'
 import {
   TooltipContent,
@@ -105,6 +107,9 @@ type ChatHeaderProps = {
   onToggleFocusMode?: () => void
   onUndo?: () => void
   onClear?: () => void
+  instances?: Array<HermesInstanceSummary>
+  activeInstanceId?: string
+  onSelectInstance?: (instanceId: string) => void
 }
 
 function ChatHeaderComponent({
@@ -132,6 +137,9 @@ function ChatHeaderComponent({
   onToggleFocusMode,
   onUndo,
   onClear,
+  instances = [],
+  activeInstanceId = 'default',
+  onSelectInstance,
 }: ChatHeaderProps) {
   const [clearConfirm, setClearConfirm] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -340,6 +348,11 @@ function ChatHeaderComponent({
             </TooltipRoot>
           </TooltipProvider>
         ) : null}
+        <HermesInstanceSwitcher
+          instances={instances}
+          activeInstanceId={activeInstanceId}
+          onSelectInstance={onSelectInstance}
+        />
         <div className="group min-w-0 flex-1">
           {isEditingTitle ? (
             <input

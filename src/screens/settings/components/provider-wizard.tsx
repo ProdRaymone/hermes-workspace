@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useConnectionRestart } from '@/components/connection-overlay'
+import { buildInstanceApiPath } from '@/lib/hermes-instance-scope'
 import { cn } from '@/lib/utils'
 
 type WizardStep = 'provider' | 'auth' | 'instructions' | 'verify'
@@ -35,6 +36,7 @@ type VerifyState = 'checking' | 'success' | 'warning'
 type ProviderWizardProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
+  instanceId?: string
   /** Pre-fill with an existing provider for editing */
   editProvider?: ProviderSummaryForEdit | null
 }
@@ -109,6 +111,7 @@ function getStepIndex(step: WizardStep): number {
  */
 async function pollForProvider(
   providerId: string,
+  instanceId = 'default',
   timeoutMs = 10_000,
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs
@@ -116,7 +119,7 @@ async function pollForProvider(
 
   while (Date.now() < deadline) {
     try {
-      const res = await fetch('/api/models')
+      const res = await fetch(buildInstanceApiPath('/api/models', instanceId))
       if (res.ok) {
         const data = (await res.json()) as {
           configuredProviders?: Array<string>
@@ -147,6 +150,7 @@ async function pollForProvider(
 export function ProviderWizard({
   open,
   onOpenChange,
+  instanceId = 'default',
   editProvider,
 }: ProviderWizardProps) {
   const { triggerRestart } = useConnectionRestart()
@@ -259,11 +263,14 @@ export function ProviderWizard({
     })
 
     async function saveConfigAndRestart() {
-      const res = await fetch('/api/config-patch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: patchBody,
-      })
+      const res = await fetch(
+        buildInstanceApiPath('/api/config-patch', instanceId),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: patchBody,
+        },
+      )
 
       const data = (await res.json()) as { ok: boolean; error?: string }
 
@@ -291,7 +298,7 @@ export function ProviderWizard({
           `Checking if ${providerName} models are available…`,
         )
 
-        const found = await pollForProvider(providerId)
+        const found = await pollForProvider(providerId, instanceId)
 
         if (found) {
           setVerifyState('success')

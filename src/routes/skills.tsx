@@ -3,6 +3,7 @@ import BackendUnavailableState from '@/components/backend-unavailable-state'
 import { usePageTitle } from '@/hooks/use-page-title'
 import { getUnavailableReason } from '@/lib/feature-gates'
 import { useFeatureAvailable } from '@/hooks/use-feature-available'
+import { useHermesInstances } from '@/hooks/use-hermes-instances'
 import { SkillsScreen } from '@/screens/skills/skills-screen'
 
 export const Route = createFileRoute('/skills')({
@@ -12,7 +13,10 @@ export const Route = createFileRoute('/skills')({
 
 function SkillsRoute() {
   usePageTitle('Skills')
-  if (!useFeatureAvailable('skills')) {
+  const { activeInstanceId } = useHermesInstances()
+  const skillsAvailable = useFeatureAvailable('skills', activeInstanceId)
+
+  if (!skillsAvailable) {
     return (
       <BackendUnavailableState
         feature="Skills"

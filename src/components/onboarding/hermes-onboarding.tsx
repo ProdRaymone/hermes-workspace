@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
+import {
+  buildOnboardingApiPath,
+  getOnboardingBackendScope,
+} from './onboarding-scope'
 import { cn } from '@/lib/utils'
 import { ProviderLogo } from '@/components/provider-logo'
 
@@ -32,6 +36,7 @@ function stripProviderPrefix(model: string): string {
 
 export const ONBOARDING_KEY = 'hermes-onboarding-complete'
 export const ONBOARDING_COMPLETE_EVENT = 'hermes:onboarding-complete'
+const ONBOARDING_BACKEND_SCOPE = getOnboardingBackendScope()
 
 function dispatchOnboardingCompletionChanged(completed: boolean) {
   if (typeof window === 'undefined') return
@@ -178,7 +183,7 @@ export function HermesOnboarding() {
 
   const loadCurrentConfig = useCallback(async () => {
     try {
-      const res = await fetch('/api/hermes-config')
+      const res = await fetch(buildOnboardingApiPath('/api/hermes-config'))
       if (!res.ok) return
       const data = (await res.json()) as {
         activeModel?: string
@@ -202,7 +207,7 @@ export function HermesOnboarding() {
   const loadModels = useCallback(async () => {
     if (!canFetchModels) return
     try {
-      const modelsRes = await fetch('/api/models')
+      const modelsRes = await fetch(buildOnboardingApiPath('/api/models'))
       if (!modelsRes.ok) return
       const modelsData = (await modelsRes.json()) as {
         data?: Array<{ id?: string }>
@@ -228,7 +233,7 @@ export function HermesOnboarding() {
     setBackendMessage('')
 
     try {
-      const res = await fetch('/api/gateway-status')
+      const res = await fetch(buildOnboardingApiPath('/api/gateway-status'))
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`)
       }
@@ -240,8 +245,8 @@ export function HermesOnboarding() {
         setBackendStatus('ready')
         setBackendMessage(
           data.capabilities.sessions
-            ? 'Backend connected. Core chat works, and Hermes gateway enhancements are available.'
-            : 'Backend connected. Core chat is ready.',
+            ? `${ONBOARDING_BACKEND_SCOPE.label} connected. Core chat works, and Hermes gateway enhancements are available.`
+            : `${ONBOARDING_BACKEND_SCOPE.label} connected. Core chat is ready.`,
         )
         return
       }
@@ -287,7 +292,7 @@ export function HermesOnboarding() {
         }
       }
 
-      const res = await fetch('/api/hermes-config', {
+      const res = await fetch(buildOnboardingApiPath('/api/hermes-config'), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -321,7 +326,7 @@ export function HermesOnboarding() {
     if (!canEditConfig || !selectedProvider) return true
 
     try {
-      const res = await fetch('/api/hermes-config', {
+      const res = await fetch(buildOnboardingApiPath('/api/hermes-config'), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -343,7 +348,7 @@ export function HermesOnboarding() {
     setTestMessage('')
 
     try {
-      const res = await fetch('/api/send-stream', {
+      const res = await fetch(buildOnboardingApiPath('/api/send-stream'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -532,6 +537,8 @@ export function HermesOnboarding() {
               <p className="text-sm" style={mutedStyle}>
                 Works with any OpenAI-compatible backend. Hermes gateway APIs
                 unlock sessions, memory, skills, and other extras automatically.
+                Setup checks {ONBOARDING_BACKEND_SCOPE.label}; switch Hermes2
+                or Hermes3 after the workspace opens.
               </p>
               <button
                 onClick={() => {
@@ -553,8 +560,8 @@ export function HermesOnboarding() {
               <div className="text-4xl">🔌</div>
               <h2 className="text-lg font-bold">Connect Your Backend</h2>
               <p className="text-sm" style={mutedStyle}>
-                Start by verifying that Hermes Workspace can reach your
-                OpenAI-compatible backend.
+                Start by verifying that Hermes Workspace can reach{' '}
+                {ONBOARDING_BACKEND_SCOPE.label}.
               </p>
 
               {backendStatus === 'checking' && (
@@ -563,7 +570,7 @@ export function HermesOnboarding() {
                   style={mutedStyle}
                 >
                   <span className="size-2 animate-pulse rounded-full bg-accent-500" />
-                  Checking backend capabilities...
+                  Checking {ONBOARDING_BACKEND_SCOPE.label} capabilities...
                 </div>
               )}
 

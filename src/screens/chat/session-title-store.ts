@@ -25,25 +25,55 @@ export type SessionTitleInfo = {
   error?: string | null
 }
 
-const STORAGE_KEY = 'hermes.sessionTitles.v1'
+const DEFAULT_STORAGE_KEY = 'hermes.sessionTitles.v1'
 
-let persistedTitles: Record<string, PersistedTitle> = {}
+const persistedTitlesByStorageKey: Record<string, Record<string, PersistedTitle>> =
+  {}
 const runtimeStates = new Map<string, RuntimeState>()
 const listeners = new Set<() => void>()
-let loaded = false
+const loadedStorageKeys = new Set<string>()
 
 // Cached snapshot to prevent infinite re-renders
-let cachedSnapshot: Record<string, SessionTitleInfo> | null = null
+const cachedSnapshots = new Map<string, Record<string, SessionTitleInfo>>()
 
-function ensureLoaded() {
-  if (loaded || typeof window === 'undefined') return
-  loaded = true
+function normalizeInstanceId(instanceId?: string): string {
+  const trimmed = instanceId?.trim()
+  return trimmed || 'default'
+}
+
+function getRuntimeStateKey(friendlyId: string, instanceId?: string): string {
+  return `${normalizeInstanceId(instanceId)}:${friendlyId}`
+}
+
+export function getSessionTitleStorageKey(instanceId?: string): string {
+  const normalized = normalizeInstanceId(instanceId)
+  if (normalized === 'default') return DEFAULT_STORAGE_KEY
+  return `${DEFAULT_STORAGE_KEY}.${normalized}`
+}
+
+function getPersistedTitles(instanceId?: string): Record<string, PersistedTitle> {
+  const storageKey = getSessionTitleStorageKey(instanceId)
+  return persistedTitlesByStorageKey[storageKey] ?? {}
+}
+
+function setPersistedTitles(
+  instanceId: string | undefined,
+  titles: Record<string, PersistedTitle>,
+) {
+  const storageKey = getSessionTitleStorageKey(instanceId)
+  persistedTitlesByStorageKey[storageKey] = titles
+}
+
+function ensureLoaded(instanceId?: string) {
+  const storageKey = getSessionTitleStorageKey(instanceId)
+  if (loadedStorageKeys.has(storageKey) || typeof window === 'undefined') return
+  loadedStorageKeys.add(storageKey)
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
+    const raw = window.localStorage.getItem(storageKey)
     if (raw) {
       const parsed = JSON.parse(raw) as unknown
       if (parsed && typeof parsed === 'object') {
-        persistedTitles = Object.fromEntries(
+        persistedTitlesByStorageKey[storageKey] = Object.fromEntries(
           Object.entries(parsed as Record<string, PersistedTitle>).map(
             ([key, value]) => {
               const normalized: PersistedTitle = {}
@@ -66,8 +96,7 @@ function ensureLoaded() {
             },
           ),
         )
-        // Invalidate cache after loading from storage
-        cachedSnapshot = null
+        cachedSnapshots.delete(storageKey)
       }
     }
   } catch {
@@ -75,30 +104,32 @@ function ensureLoaded() {
   }
 }
 
-function persist() {
+function persist(instanceId?: string) {
   if (typeof window === 'undefined') return
+  const storageKey = getSessionTitleStorageKey(instanceId)
+  const persistedTitles = getPersistedTitles(instanceId)
   try {
     const serializable = Object.fromEntries(
       Object.entries(persistedTitles).filter(([, value]) => {
         return Boolean(value.title) || Boolean(value.source)
       }),
     )
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(serializable))
+    window.localStorage.setItem(storageKey, JSON.stringify(serializable))
   } catch {
     // ignore storage failures
   }
 }
 
 function notify() {
-  // Invalidate cached snapshot when data changes
-  cachedSnapshot = null
+  cachedSnapshots.clear()
   for (const listener of listeners) listener()
 }
 
-function buildInfo(friendlyId: string): SessionTitleInfo {
-  ensureLoaded()
+function buildInfo(friendlyId: string, instanceId?: string): SessionTitleInfo {
+  ensureLoaded(instanceId)
+  const persistedTitles = getPersistedTitles(instanceId)
   const persisted = persistedTitles[friendlyId] ?? {}
-  const runtime = runtimeStates.get(friendlyId) ?? {}
+  const runtime = runtimeStates.get(getRuntimeStateKey(friendlyId, instanceId)) ?? {}
   const title = persisted.title
   const source = persisted.source
   const status: SessionTitleStatus = runtime.status
@@ -116,21 +147,29 @@ function buildInfo(friendlyId: string): SessionTitleInfo {
   }
 }
 
-function getSnapshot(): Record<string, SessionTitleInfo> {
-  ensureLoaded()
+function getSnapshotForInstance(
+  instanceId?: string,
+): Record<string, SessionTitleInfo> {
+  ensureLoaded(instanceId)
+  const storageKey = getSessionTitleStorageKey(instanceId)
   // Return cached snapshot if available (prevents infinite re-renders)
-  if (cachedSnapshot !== null) {
+  const cachedSnapshot = cachedSnapshots.get(storageKey)
+  if (cachedSnapshot) {
     return cachedSnapshot
   }
+  const normalizedInstanceId = normalizeInstanceId(instanceId)
+  const persistedTitles = getPersistedTitles(instanceId)
   const keys = new Set([
     ...Object.keys(persistedTitles),
-    ...Array.from(runtimeStates.keys()),
+    ...Array.from(runtimeStates.keys())
+      .filter((key) => key.startsWith(`${normalizedInstanceId}:`))
+      .map((key) => key.slice(normalizedInstanceId.length + 1)),
   ])
   const result: Record<string, SessionTitleInfo> = {}
   for (const key of keys) {
-    result[key] = buildInfo(key)
+    result[key] = buildInfo(key, instanceId)
   }
-  cachedSnapshot = result
+  cachedSnapshots.set(storageKey, result)
   return result
 }
 
@@ -141,12 +180,19 @@ function subscribe(listener: () => void) {
   }
 }
 
-export function useSessionTitles() {
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+export function useSessionTitles(instanceId = 'default') {
+  return useSyncExternalStore(
+    subscribe,
+    () => getSnapshotForInstance(instanceId),
+    () => getSnapshotForInstance(instanceId),
+  )
 }
 
-export function useSessionTitleInfo(friendlyId: string): SessionTitleInfo {
-  const map = useSessionTitles()
+export function useSessionTitleInfo(
+  friendlyId: string,
+  instanceId = 'default',
+): SessionTitleInfo {
+  const map = useSessionTitles(instanceId)
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime safety
   return friendlyId && map[friendlyId]
     ? map[friendlyId]
@@ -158,11 +204,14 @@ type SessionTitleUpdate = Partial<SessionTitleInfo>
 export function updateSessionTitleState(
   friendlyId: string,
   patch: SessionTitleUpdate,
+  instanceId = 'default',
 ) {
   if (!friendlyId) return
-  ensureLoaded()
+  ensureLoaded(instanceId)
+  const persistedTitles = getPersistedTitles(instanceId)
   const prevPersisted = persistedTitles[friendlyId] ?? {}
-  const prevRuntime = runtimeStates.get(friendlyId) ?? {}
+  const runtimeStateKey = getRuntimeStateKey(friendlyId, instanceId)
+  const prevRuntime = runtimeStates.get(runtimeStateKey) ?? {}
   let nextPersisted: PersistedTitle = { ...prevPersisted }
   const nextRuntime: RuntimeState = { ...prevRuntime }
 
@@ -208,33 +257,37 @@ export function updateSessionTitleState(
 
   const hasPersistedData = Boolean(nextPersisted.title || nextPersisted.source)
   if (hasPersistedData) {
-    persistedTitles = {
+    setPersistedTitles(instanceId, {
       ...persistedTitles,
       [friendlyId]: nextPersisted,
-    }
+    })
   } else if (friendlyId in persistedTitles) {
     const { [friendlyId]: _removed, ...rest } = persistedTitles
-    persistedTitles = rest
+    setPersistedTitles(instanceId, rest)
   }
 
   if (nextRuntime.status || nextRuntime.error) {
-    runtimeStates.set(friendlyId, nextRuntime)
+    runtimeStates.set(runtimeStateKey, nextRuntime)
   } else {
-    runtimeStates.delete(friendlyId)
+    runtimeStates.delete(runtimeStateKey)
   }
 
-  persist()
+  persist(instanceId)
   notify()
 }
 
-export function clearSessionTitleState(friendlyId: string) {
+export function clearSessionTitleState(
+  friendlyId: string,
+  instanceId = 'default',
+) {
   if (!friendlyId) return
-  ensureLoaded()
+  ensureLoaded(instanceId)
+  const persistedTitles = getPersistedTitles(instanceId)
   if (friendlyId in persistedTitles) {
     const { [friendlyId]: _removed, ...rest } = persistedTitles
-    persistedTitles = rest
+    setPersistedTitles(instanceId, rest)
   }
-  runtimeStates.delete(friendlyId)
-  persist()
+  runtimeStates.delete(getRuntimeStateKey(friendlyId, instanceId))
+  persist(instanceId)
   notify()
 }
