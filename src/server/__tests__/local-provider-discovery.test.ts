@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import path from 'node:path'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, readdirSync } = vi.hoisted(() => ({
   existsSync: vi.fn().mockReturnValue(false),
@@ -34,7 +34,7 @@ describe('local-provider-discovery', () => {
   it('isProviderConfigured uses YAML.parse and reads from HERMES_HOME', async () => {
     const activeHome = '/mock/profiles/jarvis'
     process.env.HERMES_HOME = activeHome
-    const configPath = `${activeHome}/config.yaml`
+    const configPath = path.join(activeHome, 'config.yaml')
     existsSync.mockImplementation((p: string) => p === configPath)
     readFileSync.mockImplementation((p: string) => {
       if (p === configPath)
@@ -50,7 +50,7 @@ describe('local-provider-discovery', () => {
   it('isProviderConfigured returns false when custom_providers is missing', async () => {
     const activeHome = '/mock/profiles/default'
     process.env.HERMES_HOME = activeHome
-    const configPath = `${activeHome}/config.yaml`
+    const configPath = path.join(activeHome, 'config.yaml')
     existsSync.mockImplementation((p: string) => p === configPath)
     readFileSync.mockImplementation((p: string) => {
       if (p === configPath) return 'model: some-model\n'
@@ -64,7 +64,7 @@ describe('local-provider-discovery', () => {
   it('ensureProviderInConfig rate-limits warnings via loggedWarnings Set', async () => {
     const activeHome = '/mock/profiles/default'
     process.env.HERMES_HOME = activeHome
-    const configPath = `${activeHome}/config.yaml`
+    const configPath = path.join(activeHome, 'config.yaml')
     existsSync.mockImplementation((p: string) => p === configPath)
     readFileSync.mockImplementation((p: string) => {
       if (p === configPath) return 'model: m\n'
