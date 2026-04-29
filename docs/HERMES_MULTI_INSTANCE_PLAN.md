@@ -26,7 +26,7 @@ The goal is to make Hermes Workspace safely operate across the existing WSL Herm
 - Latest verified runtime:
   - Hermes1/default -> `8642` -> running
   - Hermes2 -> `8643` -> running after V1.1 smoke
-  - Hermes3 -> `8644` -> stopped
+  - Hermes3 -> `8644` -> running after V1.1 smoke
 - Core chat/API paths are instance-aware:
   - models
   - status
@@ -58,29 +58,29 @@ V1 is considered complete for the read-only safety boundary as of 2026-04-29:
 - Knowledge and Memory are intentionally display-only / Workspace-shared in V1.
 - Skills are hidden outside the default profile until the skills API is instance-scoped.
 - Startup/reconnect behavior does not silently auto-start Hermes2/Hermes3, and does not treat stopped non-default instances as a Workspace-blocking failure.
-- Latest known verification: fresh `pnpm test` passed 30 files / 91 tests and fresh `pnpm build` passed with existing warnings on 2026-04-29; browser and API smoke checks passed on the listed V1 surfaces plus the Hermes2 V1.1 start path.
+- Latest known verification: fresh `pnpm test` passed 30 files / 91 tests and fresh `pnpm build` passed with existing warnings on 2026-04-29; browser and API smoke checks passed on the listed V1 surfaces plus the Hermes2/Hermes3 V1.1 start paths.
 
 ## V1.1 Start Checkpoint
 
-Hermes2 Start is implemented and smoke-tested as of 2026-04-29:
+Hermes2 and Hermes3 Start are implemented and smoke-tested as of 2026-04-29:
 
 - Start controls are visible only for stopped non-default instances and require an explicit confirmation dialog.
-- `POST /api/instances/start?instance=hermes2` rejects default/Hermes1, targets only Hermes2, uses WSL `~/.hermes` profile facts, and does not print API keys.
+- `POST /api/instances/start?instance=<id>` rejects default/Hermes1, targets only the selected non-default instance, uses WSL `~/.hermes` profile facts, and does not print API keys.
 - The WSL start runner now sends the generated script through stdin rather than `sh -lc <script>`, writes instance start output to the selected profile's `logs/workspace-start.log`, and detects immediate tmux exits before reporting success.
 - Start now re-probes unknown instance status before launching; repeated Hermes2 start calls return `already-running` without dispatching another WSL start.
 - Hermes2 smoke result: Hermes1 stayed on `8642` with pid `1112`; Hermes2 is running on `8643` with pid `74688`; `/api/connection-status?instance=hermes2` is `connected`, `/api/ping?instance=hermes2` returns HTTP 200, and `/profiles` shows Hermes2 as `live`.
-- Hermes3 remains stopped and has not been started by this checkpoint.
+- Hermes3 smoke result: Hermes1 and Hermes2 stayed running; Hermes3 is running on `8644`; `/api/connection-status?instance=hermes3` is `connected`, `/api/ping?instance=hermes3` returns HTTP 200, `/api/models?instance=hermes3` returns models, `/profiles` shows Hermes3 as `live`, and the chat switcher exposes Hermes1/Hermes2/Hermes3 with no stopped state.
 
 ## Version Roadmap
 
 The roadmap distinguishes runtime parallelism from full product-level isolation:
 
 - **V1 - Read-only safety boundary:** completed for the core chat and visual-status surfaces. Stopped Hermes2/Hermes3 are not presented as Hermes1-backed live state, and shared Workspace surfaces are labeled honestly.
-- **V1.1 - Parallel runtime start flow:** explicit Start controls can bring Hermes2/Hermes3 online without disturbing Hermes1. This is the stage where all three Hermes gateways can run in parallel for chat once Hermes3 receives separate user confirmation and passes the same smoke checks as Hermes2.
+- **V1.1 - Parallel runtime start flow:** explicit Start controls can bring Hermes2/Hermes3 online without disturbing Hermes1. This is the stage where all three Hermes gateways run in parallel for chat; Hermes2 and Hermes3 both passed smoke on 2026-04-29.
 - **V1.2 - Parallel runtime hardening:** improve the operational layer around three running gateways: status refresh, start failure diagnosis, redacted per-instance logs, duplicate-start protection, port-conflict handling, and any future Stop/Restart design. This stage still treats Knowledge/Memory/Skills as shared or default-scoped unless explicitly upgraded.
 - **V2 - Full per-instance Workspace semantics:** make Hermes1/Hermes2/Hermes3 feel like three genuinely independent workspaces, not only three chat backends. V2 owns per-instance Knowledge, Memory, Skills, Hermes config, MCP/config helpers, and related APIs so each profile can carry its own agent identity, tools, memory surface, and workspace behavior.
 
-Practical rule: three Hermes processes running side by side for chat is a V1.1 target; three complete Hermes workspaces with independent Knowledge/Memory/Skills semantics is a V2 target.
+Practical rule: three Hermes processes running side by side for chat is the V1.1 target and is now smoke-tested; three complete Hermes workspaces with independent Knowledge/Memory/Skills semantics is a V2 target.
 
 ## Execution Order
 
@@ -115,7 +115,7 @@ Audit snapshot:
 | Visual-only status | Sidebar `StatusDot`, reconnect banner | Done | Both use active instance status. Reconnect no longer treats HTTP 200 + disconnected payload as connected, and silent auto-start is gated off by default. |
 | Visual-only status | `auth-check` and startup overlay | Done | Client passes active instance to `/api/auth-check`; non-default unreachable instances return structured state without blocking the Shell, default keeps legacy blocking behavior. |
 | Visual-only status | Onboarding setup wizard/status widgets | Done | V1 keeps setup Workspace-level/default. `/api/auth-check`, `/api/gateway-status`, `/api/hermes-config`, `/api/models`, and setup chat test paths are built through onboarding scope helpers; non-default status payloads do not auto-complete onboarding. |
-| Start flow | Hermes2/Hermes3 controls | Hermes2 smoke done | Start controls are implemented with confirmation and default/Hermes1 rejection. Hermes2 has passed smoke; Hermes3 is still intentionally not started. |
+| Start flow | Hermes2/Hermes3 controls | V1.1 three-instance smoke done | Start controls are implemented with confirmation and default/Hermes1 rejection. Hermes2 and Hermes3 have both passed smoke; all three Hermes gateways are running for chat. |
 
 Acceptance:
 
