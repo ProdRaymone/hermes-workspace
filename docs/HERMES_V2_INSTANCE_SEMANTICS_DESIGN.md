@@ -114,6 +114,8 @@ Routes:
 
 Reads may work even when the gateway is stopped if WSL profile files are reachable. Writes should be atomic and should create parent directories only inside the scoped memory root.
 
+Implementation note, 2026-04-29: the first Memory slice is now implemented. `/api/memory/*` resolves the selected Hermes instance, default/Hermes1 keeps the legacy local root, and non-default WSL instances use a redacting WSL profile file adapter.
+
 ### Knowledge
 
 Default instance keeps current legacy config:
@@ -237,11 +239,11 @@ Every error payload should include redacted `scope` metadata and avoid command s
 ## Implementation Slices
 
 1. Scope foundation:
-   - Add shared scope helper and WSL profile file adapter.
-   - Add tests for default compatibility, non-default root resolution, path traversal, and redaction.
+   - Done for Memory: add scope helper and WSL profile file adapter.
+   - Done for Memory: add tests for default compatibility, non-default root resolution, path traversal, and redaction.
 2. Memory:
-   - Make `/api/memory/*` instance-aware.
-   - Update Memory screen query keys and banner.
+   - Done: make `/api/memory/*` instance-aware.
+   - Done: update Memory screen query keys and banner.
 3. Knowledge:
    - Make Knowledge config/browser/sync instance-aware.
    - Update Knowledge screen query keys and banner.

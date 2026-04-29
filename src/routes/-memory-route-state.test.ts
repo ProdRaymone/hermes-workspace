@@ -8,7 +8,7 @@ describe('memory route scope state', () => {
     expect(shouldRenderMemoryBrowser('default', false)).toBe(false)
   })
 
-  it('keeps non-default instances on the workspace-shared memory browser in V1', () => {
+  it('keeps non-default instances on the file-backed memory browser even when the gateway is stopped', () => {
     expect(shouldRenderMemoryBrowser('hermes2', false)).toBe(true)
     expect(shouldRenderMemoryBrowser('hermes3', false)).toBe(true)
   })

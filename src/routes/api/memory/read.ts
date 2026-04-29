@@ -1,7 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json } from '@tanstack/react-start'
 import { isAuthenticated } from '../../../server/auth-middleware'
-import { readMemoryFile } from '../../../server/memory-browser'
+import { resolveRequestHermesInstance } from '../../../server/hermes-instances'
+import {
+  buildMemoryScopeForInstance,
+  buildMemoryScopePayload,
+  readMemoryFileForScope,
+} from '../../../server/memory-browser'
 
 export const Route = createFileRoute('/api/memory/read')({
   server: {
@@ -10,23 +15,37 @@ export const Route = createFileRoute('/api/memory/read')({
         if (!isAuthenticated(request)) {
           return json({ error: 'Unauthorized' }, { status: 401 })
         }
-        // Memory is local-fs only. No remote gateway check needed.
         const url = new URL(request.url)
         const pathParam = url.searchParams.get('path') || ''
+        const instance = await resolveRequestHermesInstance(request)
+        const scope = buildMemoryScopeForInstance(instance)
+
         try {
-          const content = readMemoryFile(pathParam)
-          return json({ path: pathParam, content })
+          const content = await readMemoryFileForScope(pathParam, scope)
+          return json({
+            path: pathParam,
+            content,
+            scope: buildMemoryScopePayload(scope),
+          })
         } catch (error) {
           const message =
             error instanceof Error
               ? error.message
               : 'Failed to read memory file'
-          const status = /not allowed|outside workspace|required/i.test(message)
-            ? 400
-            : /ENOENT/.test(message)
-              ? 404
-              : 500
-          return json({ error: message }, { status })
+          const status =
+            /not allowed|outside workspace|outside profile|required|traversal/i.test(
+              message,
+            )
+              ? 400
+              : /ENOENT|no such file/i.test(message)
+                ? 404
+                : /unavailable/i.test(message)
+                  ? 503
+                  : 500
+          return json(
+            { error: message, scope: buildMemoryScopePayload(scope) },
+            { status },
+          )
         }
       },
     },
