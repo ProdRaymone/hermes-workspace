@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { HermesInstance } from './hermes-instances'
 import {
   buildHermesInstanceStartScript,
+  diagnoseHermesStartFailure,
+  readHermesInstanceStartLogSummary,
   redactHermesStartMessage,
+  summarizeHermesStartLog,
   startHermesInstance,
 } from './hermes-instance-start'
 
@@ -39,6 +42,9 @@ describe('hermes instance start', () => {
     expect(result).toMatchObject({
       ok: false,
       error: expect.stringContaining('Hermes1'),
+      diagnostic: {
+        title: 'Hermes1/default start is blocked',
+      },
     })
     expect(executor).not.toHaveBeenCalled()
   })
@@ -49,9 +55,75 @@ describe('hermes instance start', () => {
     expect(script).toContain("PROFILE='hermes2'")
     expect(script).toContain("API_SERVER_PORT='8643'")
     expect(script).toContain('workspace-start.log')
+    expect(script).toContain('already in use before starting')
     expect(script).toContain('exited before the gateway became ready')
     expect(script).toContain('hermes -p \\"$PROFILE\\" gateway run --replace')
     expect(script).not.toContain('8642')
+  })
+
+  it('summarizes start logs with redaction and tail limits', () => {
+    const apiKeyName = ['OPENAI', 'API', 'KEY'].join('_')
+    const summary = summarizeHermesStartLog(
+      [
+        'line 1',
+        `${apiKeyName}=super-secret`,
+        'Authorization: Bearer live-token',
+        'Hermes gateway failed to bind on 8643',
+      ].join('\n'),
+      { maxLines: 2 },
+    )
+
+    expect(summary.available).toBe(true)
+    expect(summary.truncated).toBe(true)
+    expect(summary.lines).toEqual([
+      'Authorization: Bearer <redacted>',
+      'Hermes gateway failed to bind on 8643',
+    ])
+    expect(JSON.stringify(summary)).not.toContain('super-secret')
+    expect(JSON.stringify(summary)).not.toContain('live-token')
+  })
+
+  it('reads a redacted start-log summary for the selected WSL profile', async () => {
+    const executor = vi.fn(async () => ({
+      stdout: 'TELEGRAM_BOT_TOKEN=bot-secret\nListening on 8643',
+      stderr: '',
+    }))
+
+    const summary = await readHermesInstanceStartLogSummary(instance(), {
+      executor,
+      maxLines: 5,
+    })
+
+    expect(summary).toMatchObject({
+      available: true,
+      lines: ['TELEGRAM_BOT_TOKEN=<redacted>', 'Listening on 8643'],
+    })
+    expect(JSON.stringify(summary)).not.toContain('bot-secret')
+    expect(executor).toHaveBeenCalledWith(
+      expect.stringContaining("PROFILE='hermes2'"),
+    )
+  })
+
+  it('classifies port-conflict and immediate-exit start failures', () => {
+    expect(
+      diagnoseHermesStartFailure(
+        'Port 8643 is already in use before starting Hermes 2.',
+        8643,
+      ),
+    ).toMatchObject({
+      code: 'port-conflict',
+      title: 'Port 8643 is already in use',
+    })
+
+    expect(
+      diagnoseHermesStartFailure(
+        'Hermes instance exited before the gateway became ready.',
+        8643,
+      ),
+    ).toMatchObject({
+      code: 'immediate-exit',
+      title: 'Hermes exited before becoming reachable',
+    })
   })
 
   it('redacts secrets from command output before returning errors', async () => {
@@ -83,7 +155,44 @@ describe('hermes instance start', () => {
       instance: 'hermes2',
       port: 8643,
       error: expect.stringContaining('exited before'),
+      diagnostic: {
+        code: 'immediate-exit',
+      },
     })
+  })
+
+  it('returns port-conflict diagnostics and an optional redacted log summary on failed starts', async () => {
+    const executor = vi.fn(async () => ({
+      stdout: '',
+      stderr: 'Port 8643 is already in use before starting Hermes 2.',
+    }))
+    const readStartLogSummary = vi.fn(async () =>
+      summarizeHermesStartLog('API_SERVER_KEY=server-secret\nbind failed', {
+        maxLines: 5,
+      }),
+    )
+
+    const result = await startHermesInstance(instance(), {
+      executor,
+      readStartLogSummary,
+    })
+
+    expect(result).toMatchObject({
+      ok: false,
+      instance: 'hermes2',
+      port: 8643,
+      diagnostic: {
+        code: 'port-conflict',
+      },
+      logSummary: {
+        available: true,
+        lines: ['API_SERVER_KEY=<redacted>', 'bind failed'],
+      },
+    })
+    expect(JSON.stringify(result)).not.toContain('server-secret')
+    expect(readStartLogSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'hermes2' }),
+    )
   })
 
   it('re-probes unknown status before attempting a start', async () => {
