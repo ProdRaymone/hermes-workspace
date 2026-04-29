@@ -11,7 +11,6 @@ import {
   toChatMessage,
 } from '../../server/hermes-api'
 import { resolveSessionKey } from '../../server/session-utils'
-import { isAuthenticated } from '@/server/auth-middleware'
 import {
   getLocalMessages,
   getLocalSession,
@@ -21,6 +20,7 @@ import {
   getInstanceMessages,
   probeInstanceCapabilities,
 } from '../../server/hermes-instance-api'
+import { isAuthenticated } from '@/server/auth-middleware'
 
 export const Route = createFileRoute('/api/session-history')({
   server: {

@@ -4,6 +4,7 @@ import {
   ArrowDown01Icon,
   CheckmarkCircle02Icon,
 } from '@hugeicons/core-free-icons'
+import type { HermesInstanceSummary } from '@/hooks/use-hermes-instances'
 import {
   MenuContent,
   MenuItem,
@@ -11,7 +12,6 @@ import {
   MenuTrigger,
 } from '@/components/ui/menu'
 import { cn } from '@/lib/utils'
-import type { HermesInstanceSummary } from '@/hooks/use-hermes-instances'
 import {
   buildHermesInstanceMenuItems,
   getHermesInstanceDotClassName,

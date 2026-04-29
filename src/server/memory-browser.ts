@@ -68,7 +68,9 @@ function normalizeWorkspaceRoot(): string {
   // Honor HERMES_HOME when set (e.g. ~/.hermes-vanilla for running alongside prod).
   // Fall back to ~/.hermes for the default install location.
   const envHome = process.env.HERMES_HOME?.trim()
-  const resolved = envHome ? path.resolve(envHome) : path.resolve(path.join(os.homedir(), '.hermes'))
+  const resolved = envHome
+    ? path.resolve(envHome)
+    : path.resolve(path.join(os.homedir(), '.hermes'))
   return resolved
 }
 
@@ -325,12 +327,12 @@ async function executeWslMemoryOperation(
       reject(error)
     }, MEMORY_WSL_TIMEOUT_MS)
 
-    child.stdout?.setEncoding('utf8')
-    child.stderr?.setEncoding('utf8')
-    child.stdout?.on('data', (chunk: string) => {
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => {
       stdout += chunk
     })
-    child.stderr?.on('data', (chunk: string) => {
+    child.stderr.on('data', (chunk: string) => {
       stderr += chunk
     })
     child.on('error', (error) => {
@@ -530,7 +532,11 @@ export function listMemoryFiles(): Array<MemoryFileMeta> {
   const workspaceRoot = getMemoryWorkspaceRoot()
   const results: Array<MemoryFileMeta> = []
 
-  pushIfMarkdownFile(results, workspaceRoot, path.join(workspaceRoot, 'MEMORY.md'))
+  pushIfMarkdownFile(
+    results,
+    workspaceRoot,
+    path.join(workspaceRoot, 'MEMORY.md'),
+  )
   for (const subdir of ['memory', 'memories']) {
     walkWorkspaceDir(results, workspaceRoot, path.join(workspaceRoot, subdir))
   }

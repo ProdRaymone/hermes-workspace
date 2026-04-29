@@ -1,6 +1,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Folder01Icon } from '@hugeicons/core-free-icons'
+import { HermesInstanceSwitcher } from './hermes-instance-switcher'
+import type { HermesInstanceSummary } from '@/hooks/use-hermes-instances'
 import { Button } from '@/components/ui/button'
 import {
   TooltipContent,
@@ -11,8 +13,6 @@ import {
 import { cn } from '@/lib/utils'
 import { InspectorToggleButton } from '@/components/inspector/inspector-panel'
 import { openHamburgerMenu } from '@/components/mobile-hamburger-menu'
-import type { HermesInstanceSummary } from '@/hooks/use-hermes-instances'
-import { HermesInstanceSwitcher } from './hermes-instance-switcher'
 
 function toTitleCase(value: string): string {
   return value

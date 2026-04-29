@@ -8,6 +8,15 @@ import {
   Refresh01Icon,
   UserGroupIcon,
 } from '@hugeicons/core-free-icons'
+import {
+  buildHermesInstanceFreshnessLabel,
+  buildHermesInstanceStartFailureDisplay,
+  buildHermesInstanceStartLogPath,
+  buildHermesInstanceStartPath,
+  getHermesInstanceStartButtonState,
+} from './profiles-instance-start'
+import type { HermesInstanceStartFailurePayload } from './profiles-instance-start'
+import type { HermesInstanceSummary } from '@/hooks/use-hermes-instances'
 import { Button } from '@/components/ui/button'
 import {
   AlertDialogCancel,
@@ -18,24 +27,13 @@ import {
 } from '@/components/ui/alert-dialog'
 import { toast } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
-import {
-  useHermesInstances,
-  type HermesInstanceSummary,
-} from '@/hooks/use-hermes-instances'
+import { useHermesInstances } from '@/hooks/use-hermes-instances'
 import {
   getHermesInstanceDotClassName,
   getHermesInstanceStatusLabel,
   getHermesInstanceStatusToneClassName,
   summarizeHermesInstances,
 } from '@/lib/hermes-instance-ui'
-import {
-  buildHermesInstanceFreshnessLabel,
-  buildHermesInstanceStartFailureDisplay,
-  buildHermesInstanceStartLogPath,
-  buildHermesInstanceStartPath,
-  getHermesInstanceStartButtonState,
-  type HermesInstanceStartFailurePayload,
-} from './profiles-instance-start'
 
 type StartInstanceResponse = {
   ok?: boolean
@@ -101,13 +99,14 @@ function InstanceField({
 export function HermesInstancesSection() {
   const queryClient = useQueryClient()
   const { activeInstanceId, instances, instancesQuery } = useHermesInstances()
-  const [startTarget, setStartTarget] =
-    useState<HermesInstanceSummary | null>(null)
+  const [startTarget, setStartTarget] = useState<HermesInstanceSummary | null>(
+    null,
+  )
   const [startingInstanceId, setStartingInstanceId] = useState<string | null>(
     null,
   )
   const [startFailures, setStartFailures] = useState<
-    Record<string, HermesInstanceStartFailurePayload>
+    Partial<Record<string, HermesInstanceStartFailurePayload>>
   >({})
   const summary = useMemo(
     () => summarizeHermesInstances(instances),
@@ -121,7 +120,9 @@ export function HermesInstancesSection() {
   async function refreshInstanceState() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['hermes', 'instances'] }),
-      queryClient.invalidateQueries({ queryKey: ['hermes', 'connection-status'] }),
+      queryClient.invalidateQueries({
+        queryKey: ['hermes', 'connection-status'],
+      }),
       queryClient.invalidateQueries({ queryKey: ['gateway-status'] }),
     ])
   }
@@ -135,7 +136,9 @@ export function HermesInstancesSection() {
       const response = await fetch(buildHermesInstanceStartPath(target.id), {
         method: 'POST',
       })
-      const payload = (await response.json().catch(() => ({}))) as StartInstanceResponse
+      const payload = (await response
+        .json()
+        .catch(() => ({}))) as StartInstanceResponse
       if (!response.ok || payload.ok === false) {
         const failure = {
           error: payload.error || `Start failed (${response.status})`,
@@ -178,15 +181,19 @@ export function HermesInstancesSection() {
   async function refreshStartLog(instance: HermesInstanceSummary) {
     try {
       const response = await fetch(buildHermesInstanceStartLogPath(instance.id))
-      const payload = (await response.json().catch(() => ({}))) as StartLogResponse
+      const payload = (await response
+        .json()
+        .catch(() => ({}))) as StartLogResponse
       if (!response.ok || payload.ok === false) {
-        throw new Error(payload.error || `Log refresh failed (${response.status})`)
+        throw new Error(
+          payload.error || `Log refresh failed (${response.status})`,
+        )
       }
 
       setStartFailures((current) => ({
         ...current,
         [instance.id]: {
-          ...(current[instance.id] || {}),
+          ...current[instance.id],
           logSummary: payload.summary,
         },
       }))
@@ -228,11 +235,7 @@ export function HermesInstancesSection() {
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-primary-500 dark:text-neutral-500">
             <span className="inline-flex items-center gap-1.5">
-              <HugeiconsIcon
-                icon={Clock01Icon}
-                size={12}
-                strokeWidth={1.7}
-              />
+              <HugeiconsIcon icon={Clock01Icon} size={12} strokeWidth={1.7} />
               {freshnessLabel}
             </span>
             <Button
@@ -242,11 +245,7 @@ export function HermesInstancesSection() {
               onClick={() => void refreshInstanceState()}
               className="h-7 gap-1.5 px-2 text-xs"
             >
-              <HugeiconsIcon
-                icon={Refresh01Icon}
-                size={13}
-                strokeWidth={1.8}
-              />
+              <HugeiconsIcon icon={Refresh01Icon} size={13} strokeWidth={1.8} />
               {instancesQuery.isFetching ? 'Refreshing' : 'Refresh'}
             </Button>
           </div>

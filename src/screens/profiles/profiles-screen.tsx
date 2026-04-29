@@ -14,12 +14,12 @@ import {
   SparklesIcon,
   UserGroupIcon,
 } from '@hugeicons/core-free-icons'
+import { HermesInstancesSection } from './profiles-instances-section'
 import { Button } from '@/components/ui/button'
 import { DialogContent, DialogRoot, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
-import { HermesInstancesSection } from './profiles-instances-section'
 
 type ProfileSummary = {
   name: string

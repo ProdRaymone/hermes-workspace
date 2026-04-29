@@ -1,7 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json } from '@tanstack/react-start'
 import { isSyntheticSessionKey } from '../../server/session-utils'
-import { isAuthenticated } from '@/server/auth-middleware'
 import { resolveRequestHermesInstance } from '../../server/hermes-instances'
 import {
   getInstanceConfig,
@@ -9,6 +8,7 @@ import {
   listInstanceSessions,
   probeInstanceCapabilities,
 } from '../../server/hermes-instance-api'
+import { isAuthenticated } from '@/server/auth-middleware'
 
 export const Route = createFileRoute('/api/session-status')({
   server: {

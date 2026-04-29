@@ -164,7 +164,8 @@ export function MemoryBrowserScreen() {
 
   useEffect(() => {
     if (!filesQuery.isSuccess) return
-    const nextPath = rootMemory?.path ?? memoryFiles[0]?.path ?? null
+    const nextFile = rootMemory || memoryFiles.at(0) || null
+    const nextPath = nextFile ? nextFile.path : null
     if (!selectedPath) {
       setSelectedPath(nextPath)
       return

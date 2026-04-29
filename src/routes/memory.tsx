@@ -1,12 +1,12 @@
 import { Suspense, lazy, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
+import { shouldRenderMemoryBrowser } from './-memory-route-state'
 import BackendUnavailableState from '@/components/backend-unavailable-state'
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
 import { useFeatureAvailable } from '@/hooks/use-feature-available'
 import { usePageTitle } from '@/hooks/use-page-title'
 import { getUnavailableReason } from '@/lib/feature-gates'
 import { useHermesInstances } from '@/hooks/use-hermes-instances'
-import { shouldRenderMemoryBrowser } from './-memory-route-state'
 
 const MemoryBrowserScreen = lazy(async () => {
   const module = await import('@/screens/memory/memory-browser-screen')

@@ -10,8 +10,8 @@ import {
 } from '@hugeicons/core-free-icons'
 import { memo, useMemo } from 'react'
 import { getMessageTimestamp } from '../../utils'
-import type { SessionMeta } from '../../types'
 import { getLastSessionStorageKey } from '../../chat-screen-utils'
+import type { SessionMeta } from '../../types'
 import { cn } from '@/lib/utils'
 import {
   MenuContent,

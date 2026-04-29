@@ -123,8 +123,7 @@ export function ConnectionStartupScreen({
           // looking at the failure panel
           setServerLog([
             String(
-              data.message ||
-                'Auto-started Hermes gateway — reconnecting…',
+              data.message || 'Auto-started Hermes gateway — reconnecting…',
             ),
           ])
         }
@@ -161,7 +160,6 @@ export function ConnectionStartupScreen({
       if (autoStartTimer) clearTimeout(autoStartTimer)
       clearTimeout(failureTimer)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allowAutoStart, instanceId])
 
   useEffect(() => {

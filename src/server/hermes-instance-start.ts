@@ -1,9 +1,7 @@
 import { spawn } from 'node:child_process'
-import {
-  probeHermesInstance,
-  type HermesInstance,
-} from './hermes-instances'
 import { isDefaultHermesInstance } from '../lib/hermes-instance-scope'
+import { probeHermesInstance } from './hermes-instances'
+import type { HermesInstance } from './hermes-instances'
 
 const START_SCRIPT_TIMEOUT_MS = 12_000
 const START_LOG_SUMMARY_TIMEOUT_MS = 5_000
@@ -150,8 +148,7 @@ export function diagnoseHermesStartFailure(
     return {
       code: 'port-conflict',
       title: `Port ${port} is already in use`,
-      hint:
-        'Another process appears to be occupying this instance port. Close that process or adjust the selected Hermes profile port before starting again.',
+      hint: 'Another process appears to be occupying this instance port. Close that process or adjust the selected Hermes profile port before starting again.',
     }
   }
 
@@ -162,8 +159,7 @@ export function diagnoseHermesStartFailure(
     return {
       code: 'immediate-exit',
       title: 'Hermes exited before becoming reachable',
-      hint:
-        'The detached Hermes process exited during startup. Review the redacted start log summary for the profile-specific error.',
+      hint: 'The detached Hermes process exited during startup. Review the redacted start log summary for the profile-specific error.',
     }
   }
 
@@ -171,8 +167,7 @@ export function diagnoseHermesStartFailure(
     return {
       code: 'missing-tmux',
       title: 'tmux is required in WSL',
-      hint:
-        'Install tmux inside the selected WSL environment, then retry the explicit Start action.',
+      hint: 'Install tmux inside the selected WSL environment, then retry the explicit Start action.',
     }
   }
 
@@ -183,8 +178,7 @@ export function diagnoseHermesStartFailure(
     return {
       code: 'duplicate-token',
       title: 'Profile token overlaps Hermes1',
-      hint:
-        'The selected profile appears to share a Telegram bot token with Hermes1, so Workspace refused to start it.',
+      hint: 'The selected profile appears to share a Telegram bot token with Hermes1, so Workspace refused to start it.',
     }
   }
 
@@ -192,16 +186,14 @@ export function diagnoseHermesStartFailure(
     return {
       code: 'timeout',
       title: 'Hermes start timed out',
-      hint:
-        'Workspace dispatched the start command but the instance did not become reachable before the timeout.',
+      hint: 'Workspace dispatched the start command but the instance did not become reachable before the timeout.',
     }
   }
 
   return {
     code: 'unknown',
     title: 'Hermes start failed',
-    hint:
-      'Workspace could not classify the failure. Review the redacted start log summary and retry after fixing the profile runtime issue.',
+    hint: 'Workspace could not classify the failure. Review the redacted start log summary and retry after fixing the profile runtime issue.',
   }
 }
 
@@ -330,12 +322,12 @@ function executeWslScript(
       reject(error)
     }, timeoutMs)
 
-    child.stdout?.setEncoding('utf8')
-    child.stderr?.setEncoding('utf8')
-    child.stdout?.on('data', (chunk: string) => {
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => {
       stdout += chunk
     })
-    child.stderr?.on('data', (chunk: string) => {
+    child.stderr.on('data', (chunk: string) => {
       stderr += chunk
     })
     child.on('error', (error) => {
@@ -348,7 +340,9 @@ function executeWslScript(
     child.on('close', (code) => {
       clearTimeout(timer)
       if (code && code !== 0) {
-        const error = new Error(`Hermes WSL script exited with code ${code}`) as Error & {
+        const error = new Error(
+          `Hermes WSL script exited with code ${code}`,
+        ) as Error & {
           stdout?: string
           stderr?: string
         }
@@ -490,7 +484,8 @@ export async function startHermesInstance(
 
   try {
     const output = await executor(script)
-    const combinedOutput = `${output.stdout || ''}\n${output.stderr || ''}`.trim()
+    const combinedOutput =
+      `${output.stdout || ''}\n${output.stderr || ''}`.trim()
     if (!String(output.stdout || '').includes('STARTING')) {
       return await toResultError(
         currentInstance,

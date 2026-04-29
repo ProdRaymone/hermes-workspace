@@ -20,6 +20,12 @@ import {
   useRef,
   useState,
 } from 'react'
+import { setLocalModelOverride } from '../chat-screen'
+import {
+  MODEL_SWITCH_BLOCKED_TOAST,
+  getZeroForkModelInfoFlags,
+  shouldBlockZeroForkModelSwitch,
+} from './chat-composer-model-switch'
 import type { CSSProperties, Ref } from 'react'
 
 import type { ModelCatalogEntry, ModelSwitchResponse } from '@/lib/model-types'
@@ -45,11 +51,6 @@ import { useVoiceInput } from '@/hooks/use-voice-input'
 import { useVoiceRecorder } from '@/hooks/use-voice-recorder'
 import { toast } from '@/components/ui/toast'
 import { getActiveHermesInstanceId } from '@/hooks/use-hermes-instances'
-import {
-  getZeroForkModelInfoFlags,
-  MODEL_SWITCH_BLOCKED_TOAST,
-  shouldBlockZeroForkModelSwitch,
-} from './chat-composer-model-switch'
 
 type ChatComposerAttachment = {
   id: string
@@ -263,14 +264,12 @@ async function fetchModelsForProvider(
   }
 
   const payload = (await response.json()) as HermesAvailableModelsResponse
-  return (payload.models || []).map((model) => ({
+  return payload.models.map((model) => ({
     id: model.id,
     name: model.id,
     provider: normalizedProvider,
   }))
 }
-
-import { setLocalModelOverride } from '../chat-screen'
 
 const LOCAL_PROVIDERS_SET = new Set(['ollama', 'atomic-chat'])
 
@@ -747,7 +746,7 @@ function ChatComposerComponent({
   } | null>(null)
   const [focusAfterSubmitTick, setFocusAfterSubmitTick] = useState(0)
   const { settings: composerSettings } = useSettings()
-  const chatNavMode = composerSettings.mobileChatNavMode ?? 'dock'
+  const chatNavMode = composerSettings.mobileChatNavMode
   const [isMobileViewport, setIsMobileViewport] = useState(() => {
     if (typeof window === 'undefined') return false
     return window.matchMedia('(max-width: 767px)').matches
@@ -1077,7 +1076,6 @@ function ChatComposerComponent({
     if (isMobileViewport) return
     // Only focus on focusKey change (session switch), not on every disabled toggle
     focusPrompt()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey, isMobileViewport])
 
   useLayoutEffect(() => {
@@ -2233,8 +2231,9 @@ function ChatComposerComponent({
                             const LOCAL_PROVIDER_IDS = ['ollama', 'atomic-chat']
                             const isLocal =
                               (typeof m !== 'string' &&
-                              (m as Record<string, unknown>).description ===
-                                'local') || LOCAL_PROVIDER_IDS.includes(mProvider)
+                                (m as Record<string, unknown>).description ===
+                                  'local') ||
+                              LOCAL_PROVIDER_IDS.includes(mProvider)
                             return {
                               id: mId,
                               name: mName,

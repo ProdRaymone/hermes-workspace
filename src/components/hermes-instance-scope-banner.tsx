@@ -1,11 +1,11 @@
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Link01Icon } from '@hugeicons/core-free-icons'
 import type { HermesInstanceSummary } from '@/hooks/use-hermes-instances'
+import type { HermesScopeKind } from '@/lib/hermes-instance-ui'
 import {
   buildHermesScopeSummary,
   getHermesInstanceDotClassName,
   getHermesInstanceStatusToneClassName,
-  type HermesScopeKind,
 } from '@/lib/hermes-instance-ui'
 import { cn } from '@/lib/utils'
 

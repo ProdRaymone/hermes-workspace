@@ -40,6 +40,12 @@ function authHeaders(): Record<string, string> {
   return BEARER_TOKEN ? { Authorization: `Bearer ${BEARER_TOKEN}` } : {}
 }
 
+function getResponseBody(
+  response: Response,
+): ReadableStream<Uint8Array> | null {
+  return (response as { body?: ReadableStream<Uint8Array> | null }).body ?? null
+}
+
 function instanceUrl(instance: HermesInstance, path: string): string {
   return `${instance.gatewayUrl.replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`
 }
@@ -103,11 +109,14 @@ async function probeChatCompletions(
   instance: HermesInstance,
 ): Promise<boolean> {
   try {
-    const response = await fetch(instanceUrl(instance, '/v1/chat/completions'), {
-      method: 'GET',
-      headers: authHeaders(),
-      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-    })
+    const response = await fetch(
+      instanceUrl(instance, '/v1/chat/completions'),
+      {
+        method: 'GET',
+        headers: authHeaders(),
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      },
+    )
     if (response.status === 405) return true
     if (response.status === 400 || response.status === 422) return true
     if (response.status === 404 || response.status === 403) return false
@@ -120,23 +129,16 @@ async function probeChatCompletions(
 export async function probeInstanceCapabilities(
   instance: HermesInstance,
 ): Promise<InstanceCapabilities> {
-  const [
-    health,
-    chatCompletions,
-    models,
-    sessions,
-    skills,
-    config,
-    jobs,
-  ] = await Promise.all([
-    probe(instance, '/health'),
-    probeChatCompletions(instance),
-    probe(instance, '/v1/models'),
-    probe(instance, '/api/sessions'),
-    probe(instance, '/api/skills'),
-    probe(instance, '/api/config'),
-    probe(instance, '/api/jobs'),
-  ])
+  const [health, chatCompletions, models, sessions, skills, config, jobs] =
+    await Promise.all([
+      probe(instance, '/health'),
+      probeChatCompletions(instance),
+      probe(instance, '/v1/models'),
+      probe(instance, '/api/sessions'),
+      probe(instance, '/api/skills'),
+      probe(instance, '/api/config'),
+      probe(instance, '/api/jobs'),
+    ])
 
   return {
     health,
@@ -271,9 +273,13 @@ export async function deleteInstanceSession(
   instance: HermesInstance,
   sessionId: string,
 ): Promise<void> {
-  await instanceJson(instance, `/api/sessions/${encodeURIComponent(sessionId)}`, {
-    method: 'DELETE',
-  })
+  await instanceJson(
+    instance,
+    `/api/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      method: 'DELETE',
+    },
+  )
 }
 
 export async function getInstanceMessages(
@@ -302,10 +308,7 @@ export async function streamInstanceChat(
   },
   opts: {
     signal?: AbortSignal
-    onEvent: (payload: {
-      event: string
-      data: Record<string, unknown>
-    }) => void
+    onEvent: (payload: { event: string; data: Record<string, unknown> }) => void
   },
 ): Promise<void> {
   const response = await fetch(
@@ -323,19 +326,22 @@ export async function streamInstanceChat(
 
   if (!response.ok) {
     const text = await response.text().catch(() => '')
-    throw new Error(`Hermes ${instance.id} chat stream: ${response.status} ${text}`)
+    throw new Error(
+      `Hermes ${instance.id} chat stream: ${response.status} ${text}`,
+    )
   }
 
-  const reader = response.body?.getReader()
+  const responseBody = getResponseBody(response)
+  const reader = responseBody?.getReader()
   if (!reader) throw new Error('No response body')
 
   const decoder = new TextDecoder()
   let buffer = ''
   let currentEvent = ''
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
+  let readResult = await reader.read()
+  while (!readResult.done) {
+    const { value } = readResult
 
     buffer += decoder.decode(value, { stream: true })
     const lines = buffer.split('\n')
@@ -355,6 +361,8 @@ export async function streamInstanceChat(
         }
       }
     }
+
+    readResult = await reader.read()
   }
 }
 
@@ -386,15 +394,16 @@ function buildOpenAIRequestBody(
 async function* parseInstanceOpenAIStream(
   response: Response,
 ): AsyncGenerator<StreamChunkType, void, void> {
-  const reader = response.body?.getReader()
+  const responseBody = getResponseBody(response)
+  const reader = responseBody?.getReader()
   if (!reader) throw new Error('No response body')
 
   const decoder = new TextDecoder()
   let buffer = ''
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
+  let readResult = await reader.read()
+  while (!readResult.done) {
+    const { value } = readResult
 
     buffer += decoder.decode(value, { stream: true })
 
@@ -404,7 +413,7 @@ async function* parseInstanceOpenAIStream(
       buffer = buffer.slice(boundary + 2)
 
       let eventName = ''
-      const dataLines: string[] = []
+      const dataLines: Array<string> = []
 
       for (const line of rawEvent.split('\n')) {
         const trimmed = line.trim()
@@ -448,6 +457,8 @@ async function* parseInstanceOpenAIStream(
 
       boundary = buffer.indexOf('\n\n')
     }
+
+    readResult = await reader.read()
   }
 }
 

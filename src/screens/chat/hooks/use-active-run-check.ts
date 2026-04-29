@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react'
+import { useChatStore } from '../../../stores/chat-store'
 import {
   buildInstanceApiPath,
   getInstanceScopedSessionKey,
 } from '@/lib/hermes-instance-scope'
-import { useChatStore } from '../../../stores/chat-store'
 
 type ActiveRunStatus =
   | 'accepted'
@@ -70,9 +70,12 @@ export function useActiveRunCheck({
 
     async function check() {
       try {
-        const response = await fetch(buildActiveRunUrl(sessionKey, instanceId), {
-          signal: controller.signal,
-        })
+        const response = await fetch(
+          buildActiveRunUrl(sessionKey, instanceId),
+          {
+            signal: controller.signal,
+          },
+        )
         if (!response.ok) return
 
         const data = (await response.json()) as ActiveRunResponse

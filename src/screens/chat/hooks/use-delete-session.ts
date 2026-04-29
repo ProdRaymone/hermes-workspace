@@ -84,11 +84,11 @@ export function useDeleteSession(): DeleteSessionResult {
     },
     onSuccess: function onSuccess(payload, _variables, context) {
       if (payload.isActive) {
-        resetPendingSend(context?.instanceId)
+        resetPendingSend(context.instanceId)
       }
       clearSessionTitleState(
         payload.friendlyId || payload.sessionKey,
-        context?.instanceId,
+        context.instanceId,
       )
       queryClient.invalidateQueries({ queryKey: chatQueryKeys.sessions })
     },

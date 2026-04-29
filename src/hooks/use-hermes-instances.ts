@@ -64,7 +64,8 @@ export function useHermesInstances() {
   useEffect(() => {
     const sync = () => setActiveInstanceIdState(getActiveHermesInstanceId())
     const handleInstanceChanged = (event: Event) => {
-      const detail = (event as CustomEvent<{ instanceId?: string }>).detail
+      const detail = (event as CustomEvent<{ instanceId?: string } | undefined>)
+        .detail
       setActiveInstanceIdState(normalizeInstanceId(detail?.instanceId))
     }
 
@@ -101,7 +102,9 @@ export function useHermesInstances() {
 
   useEffect(() => {
     if (!instances.length) return
-    const exists = instances.some((instance) => instance.id === activeInstanceId)
+    const exists = instances.some(
+      (instance) => instance.id === activeInstanceId,
+    )
     if (exists) return
     const fallback =
       instances.find((instance) => instance.isDefault)?.id ||

@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { HermesInstance } from './hermes-instances'
 import {
   buildHermesInstanceStartScript,
   diagnoseHermesStartFailure,
   readHermesInstanceStartLogSummary,
   redactHermesStartMessage,
-  summarizeHermesStartLog,
   startHermesInstance,
+  summarizeHermesStartLog,
 } from './hermes-instance-start'
+import type { HermesInstance } from './hermes-instances'
 
 function instance(overrides: Partial<HermesInstance> = {}): HermesInstance {
   return {
@@ -29,15 +29,18 @@ describe('hermes instance start', () => {
   it('refuses to start the default Hermes instance', async () => {
     const executor = vi.fn()
 
-    const result = await startHermesInstance(instance({
-      id: 'default',
-      profileName: 'default',
-      label: 'Hermes 1',
-      profilePath: '/home/Raymone-Linux/.hermes',
-      gatewayUrl: 'http://127.0.0.1:8642',
-      port: 8642,
-      isDefault: true,
-    }), { executor })
+    const result = await startHermesInstance(
+      instance({
+        id: 'default',
+        profileName: 'default',
+        label: 'Hermes 1',
+        profilePath: '/home/Raymone-Linux/.hermes',
+        gatewayUrl: 'http://127.0.0.1:8642',
+        port: 8642,
+        isDefault: true,
+      }),
+      { executor },
+    )
 
     expect(result).toMatchObject({
       ok: false,

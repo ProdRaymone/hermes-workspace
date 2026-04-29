@@ -5,14 +5,17 @@ import {
   toChatMessage,
 } from '../../server/hermes-api'
 import { resolveSessionKey } from '../../server/session-utils'
-import { isAuthenticated } from '@/server/auth-middleware'
-import { getLocalSession, getLocalMessages } from '../../server/local-session-store'
+import {
+  getLocalMessages,
+  getLocalSession,
+} from '../../server/local-session-store'
 import { resolveRequestHermesInstance } from '../../server/hermes-instances'
 import {
   getInstanceMessages,
   listInstanceSessions,
   probeInstanceCapabilities,
 } from '../../server/hermes-instance-api'
+import { isAuthenticated } from '@/server/auth-middleware'
 
 export const Route = createFileRoute('/api/history')({
   server: {
@@ -65,7 +68,10 @@ export const Route = createFileRoute('/api/history')({
                 id.startsWith('cron_') ||
                 id.startsWith('cron:') ||
                 id.startsWith('agent:main:ops-')
-              const hasRealTitle = (s: { id: string; title?: string | null }) => {
+              const hasRealTitle = (s: {
+                id: string
+                title?: string | null
+              }) => {
                 const t = (s.title ?? '').trim()
                 return t.length > 0 && t !== s.id
               }

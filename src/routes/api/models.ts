@@ -7,8 +7,8 @@ import { createFileRoute } from '@tanstack/react-router'
 import { isAuthenticated } from '../../server/auth-middleware'
 import {
   ensureDiscovery,
-  getDiscoveredModels,
   ensureProviderInConfig,
+  getDiscoveredModels,
 } from '../../server/local-provider-discovery'
 import { resolveRequestHermesInstance } from '../../server/hermes-instances'
 import {
@@ -16,7 +16,8 @@ import {
   probeInstanceCapabilities,
 } from '../../server/hermes-instance-api'
 
-const HERMES_HOME = process.env.HERMES_HOME ?? path.join(os.homedir(), '.hermes')
+const HERMES_HOME =
+  process.env.HERMES_HOME ?? path.join(os.homedir(), '.hermes')
 const MODELS_PATH = path.join(HERMES_HOME, 'models.json')
 const CONFIG_PATH = path.join(HERMES_HOME, 'config.yaml')
 

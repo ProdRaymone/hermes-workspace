@@ -290,18 +290,28 @@ PY
       timeout: 3_000,
       windowsHide: true,
     })
-    const parsed = JSON.parse(raw) as HermesProfilesSnapshot
+    const parsed = JSON.parse(raw) as {
+      root?: unknown
+      source?: unknown
+      profiles?: Array<Partial<HermesProfileSnapshot> | null>
+    }
     if (!Array.isArray(parsed.profiles) || parsed.profiles.length === 0) {
       return null
     }
+    const root = typeof parsed.root === 'string' ? parsed.root : '~/.hermes'
     return {
-      root: typeof parsed.root === 'string' ? parsed.root : '~/.hermes',
+      root,
       source: 'wsl',
       profiles: parsed.profiles
-        .filter((profile) => profile && typeof profile.name === 'string')
+        .filter(
+          (
+            profile,
+          ): profile is Partial<HermesProfileSnapshot> & { name: string } =>
+            Boolean(profile) && typeof profile.name === 'string',
+        )
         .map((profile) => ({
           name: profile.name,
-          path: typeof profile.path === 'string' ? profile.path : parsed.root,
+          path: typeof profile.path === 'string' ? profile.path : root,
           model: typeof profile.model === 'string' ? profile.model : undefined,
           provider:
             typeof profile.provider === 'string' ? profile.provider : undefined,

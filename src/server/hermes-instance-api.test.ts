@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { HermesInstance } from './hermes-instances'
 import {
   fetchInstanceModels,
   openaiInstanceChat,
   probeInstanceCapabilities,
 } from './hermes-instance-api'
+import type { HermesInstance } from './hermes-instances'
 
 const hermes2: HermesInstance = {
   id: 'hermes2',
@@ -51,29 +51,34 @@ describe('hermes instance API', () => {
   })
 
   it('probes capabilities against the selected instance only', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
-      if (url === 'http://127.0.0.1:8643/health') return Response.json({ ok: true })
-      if (url === 'http://127.0.0.1:8643/v1/models') {
-        return Response.json({ data: [] })
-      }
-      if (url === 'http://127.0.0.1:8643/v1/chat/completions') {
-        return new Response('', { status: init?.method === 'GET' ? 405 : 200 })
-      }
-      if (url === 'http://127.0.0.1:8643/api/sessions') {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url === 'http://127.0.0.1:8643/health')
+          return Response.json({ ok: true })
+        if (url === 'http://127.0.0.1:8643/v1/models') {
+          return Response.json({ data: [] })
+        }
+        if (url === 'http://127.0.0.1:8643/v1/chat/completions') {
+          return new Response('', {
+            status: init?.method === 'GET' ? 405 : 200,
+          })
+        }
+        if (url === 'http://127.0.0.1:8643/api/sessions') {
+          return new Response('', { status: 404 })
+        }
+        if (url === 'http://127.0.0.1:8643/api/skills') {
+          return Response.json({ skills: [] })
+        }
+        if (url === 'http://127.0.0.1:8643/api/config') {
+          return Response.json({})
+        }
+        if (url === 'http://127.0.0.1:8643/api/jobs') {
+          return Response.json({ jobs: [] })
+        }
         return new Response('', { status: 404 })
-      }
-      if (url === 'http://127.0.0.1:8643/api/skills') {
-        return Response.json({ skills: [] })
-      }
-      if (url === 'http://127.0.0.1:8643/api/config') {
-        return Response.json({})
-      }
-      if (url === 'http://127.0.0.1:8643/api/jobs') {
-        return Response.json({ jobs: [] })
-      }
-      return new Response('', { status: 404 })
-    })
+      },
+    )
     vi.stubGlobal('fetch', fetchMock)
 
     const capabilities = await probeInstanceCapabilities(hermes2)

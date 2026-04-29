@@ -29,7 +29,9 @@ export type HermesInstanceStartFailureDisplay = {
 }
 
 function buildInstanceQueryPath(path: string, instanceId: string): string {
-  const query = new URLSearchParams({ instance: instanceId.trim() || 'default' })
+  const query = new URLSearchParams({
+    instance: instanceId.trim() || 'default',
+  })
   return `${path}?${query.toString()}`
 }
 
@@ -51,7 +53,7 @@ export function getHermesInstanceStartButtonState(
 
   return {
     visible: true,
-    disabled: starting || instance.status !== 'stopped',
+    disabled: starting,
     label: starting ? 'Starting...' : 'Start',
   }
 }

@@ -10,11 +10,11 @@ import {
   RefreshIcon,
   Settings01Icon,
 } from '@hugeicons/core-free-icons'
-import type { OnboardingStepComponentProps } from './onboarding-steps'
 import {
   buildOnboardingApiPath,
   getOnboardingBackendScope,
 } from './onboarding-scope'
+import type { OnboardingStepComponentProps } from './onboarding-steps'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 

@@ -124,12 +124,16 @@ export function useAutoSessionTitle({
     title: string,
     source: 'auto' | 'manual' = 'auto',
   ) => {
-    updateSessionTitleState(friendlyIdToUpdate, {
-      title,
-      source,
-      status: 'ready',
-      error: null,
-    }, instanceId)
+    updateSessionTitleState(
+      friendlyIdToUpdate,
+      {
+        title,
+        source,
+        status: 'ready',
+        error: null,
+      },
+      instanceId,
+    )
     queryClient.setQueryData(
       chatQueryKeys.sessionsFor(instanceId),
       function updateSessions(existing: unknown) {
@@ -179,10 +183,14 @@ export function useAutoSessionTitle({
       void queryClient.invalidateQueries({ queryKey: chatQueryKeys.sessions })
     },
     onError: (error, payload) => {
-      updateSessionTitleState(payload.friendlyId, {
-        status: 'error',
-        error: error instanceof Error ? error.message : String(error ?? ''),
-      }, instanceId)
+      updateSessionTitleState(
+        payload.friendlyId,
+        {
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        instanceId,
+      )
     },
   })
 

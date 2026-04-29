@@ -3,7 +3,6 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { HermesInstance } from './hermes-instances'
 import {
   buildMemoryScopeForInstance,
   listMemoryFilesForScope,
@@ -11,6 +10,7 @@ import {
   redactMemoryFileError,
   searchMemoryFilesForScope,
 } from './memory-browser'
+import type { HermesInstance } from './hermes-instances'
 
 function instance(overrides: Partial<HermesInstance> = {}): HermesInstance {
   return {

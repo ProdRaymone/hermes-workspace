@@ -4,13 +4,13 @@ import {
   isAuthenticated,
   isPasswordProtectionEnabled,
 } from '../../server/auth-middleware'
-import type { InstanceCapabilities } from '../../server/hermes-instance-api'
 import {
   getRequestInstanceId,
   resolveRequestHermesInstance,
 } from '../../server/hermes-instances'
 import { probeInstanceCapabilities } from '../../server/hermes-instance-api'
 import { isDefaultHermesInstance } from '../../lib/hermes-instance-scope'
+import type { InstanceCapabilities } from '../../server/hermes-instance-api'
 
 type AuthReachabilityCaps = Pick<
   InstanceCapabilities,

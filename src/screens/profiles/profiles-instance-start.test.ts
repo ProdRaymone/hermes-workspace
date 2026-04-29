@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 
-import type { HermesInstanceSummary } from '@/hooks/use-hermes-instances'
 import {
   buildHermesInstanceFreshnessLabel,
   buildHermesInstanceStartFailureDisplay,
@@ -8,6 +7,7 @@ import {
   buildHermesInstanceStartPath,
   getHermesInstanceStartButtonState,
 } from './profiles-instance-start'
+import type { HermesInstanceSummary } from '@/hooks/use-hermes-instances'
 
 function instance(
   overrides: Partial<HermesInstanceSummary> = {},
@@ -38,10 +38,12 @@ describe('profiles instance start helpers', () => {
       ).visible,
     ).toBe(false)
     expect(
-      getHermesInstanceStartButtonState(instance({ status: 'running' })).visible,
+      getHermesInstanceStartButtonState(instance({ status: 'running' }))
+        .visible,
     ).toBe(false)
     expect(
-      getHermesInstanceStartButtonState(instance({ status: 'unknown' })).visible,
+      getHermesInstanceStartButtonState(instance({ status: 'unknown' }))
+        .visible,
     ).toBe(false)
   })
 

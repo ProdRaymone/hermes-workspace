@@ -1,10 +1,5 @@
 // Module-level local model override — set by composer when user picks a local model
 // Avoids prop threading. Reset when switching back to cloud models.
-export let _localModelOverride = ''
-export function setLocalModelOverride(model: string) {
-  _localModelOverride = model
-}
-
 import {
   useCallback,
   useEffect,
@@ -54,8 +49,6 @@ import { useChatHistory } from './hooks/use-chat-history'
 import { useRealtimeChatHistory } from './hooks/use-realtime-chat-history'
 import { useSmoothStreamingText } from './hooks/use-smooth-streaming-text'
 import { useStreamingMessage } from './hooks/use-streaming-message'
-import { playChatComplete } from '@/lib/sounds'
-import { useChatSettingsStore } from '@/hooks/use-chat-settings'
 import {
   buildActiveRunUrl,
   useActiveRunCheck,
@@ -80,6 +73,8 @@ import type {
 import type { ApprovalRequest } from '@/lib/approvals-store'
 import type { ChatAttachment, ChatMessage, SessionMeta } from './types'
 import type { ChatRunCommandDetail } from './chat-events'
+import { useChatSettingsStore } from '@/hooks/use-chat-settings'
+import { playChatComplete } from '@/lib/sounds'
 import {
   addApproval,
   loadApprovals,
@@ -109,6 +104,11 @@ import { useResearchCard } from '@/hooks/use-research-card'
 import { useTapDebug } from '@/hooks/use-tap-debug'
 import { useChatMode } from '@/hooks/use-chat-mode'
 import { getInstanceScopedSessionKey } from '@/lib/hermes-instance-scope'
+
+export let _localModelOverride = ''
+export function setLocalModelOverride(model: string) {
+  _localModelOverride = model
+}
 // Activity store removed — not used in Hermes Workspace
 const _noopSetActivity = (_s: string) => {}
 
@@ -231,7 +231,7 @@ function exportConversationTranscript(payload: {
       const text = textFromMessage(message).trim()
       const attachments = Array.isArray(message.attachments)
         ? message.attachments
-            .map((attachment) => attachment?.name?.trim())
+            .map((attachment) => attachment.name?.trim())
             .filter((value): value is string => Boolean(value))
         : []
 
@@ -289,11 +289,11 @@ function messageFallbackSignature(message: ChatMessage): string {
     ? message.attachments
         .map((attachment) => {
           const name =
-            typeof attachment?.name === 'string' ? attachment.name : ''
+            typeof attachment.name === 'string' ? attachment.name : ''
           const size =
-            typeof attachment?.size === 'number' ? String(attachment.size) : ''
+            typeof attachment.size === 'number' ? String(attachment.size) : ''
           const type =
-            typeof attachment?.contentType === 'string'
+            typeof attachment.contentType === 'string'
               ? attachment.contentType
               : ''
           return `${name}:${size}:${type}`
@@ -392,13 +392,11 @@ function getMessageAttachmentSignature(message: ChatMessage): string {
 
   return message.attachments
     .map((attachment) => {
-      const name = typeof attachment?.name === 'string' ? attachment.name : ''
+      const name = typeof attachment.name === 'string' ? attachment.name : ''
       const size =
-        typeof attachment?.size === 'number' ? String(attachment.size) : ''
+        typeof attachment.size === 'number' ? String(attachment.size) : ''
       const type =
-        typeof attachment?.contentType === 'string'
-          ? attachment.contentType
-          : ''
+        typeof attachment.contentType === 'string' ? attachment.contentType : ''
       return `${name}:${size}:${type}`
     })
     .sort()
@@ -619,7 +617,7 @@ export function ChatScreen({
   // On remount, check if the server still has an active run for this session.
   // If so, re-set waitingForResponse in the store so the UI shows the spinner.
   useActiveRunCheck({
-    sessionKey: resolvedSessionKey ?? '',
+    sessionKey: resolvedSessionKey,
     enabled:
       !isNewChat && Boolean(resolvedSessionKey) && historyQuery.isSuccess,
     instanceId: activeInstanceId,
@@ -1011,7 +1009,7 @@ export function ChatScreen({
     return models.map((m: any) => m.id).filter((id: string) => id)
   }, [modelsQuery.data])
 
-  const gatewayModel = currentModelQuery.data || activeInstance?.model || ''
+  const gatewayModel = currentModelQuery.data || activeInstance.model || ''
   const currentModel = _localModelOverride || gatewayModel
 
   // Ref so sendMessage can always read latest thinkingLevel without being in deps
@@ -1391,7 +1389,7 @@ export function ChatScreen({
 
   const derivedStreamingInfo = useMemo(() => {
     if (activeIsRealtimeStreaming) {
-      const last = finalDisplayMessages[finalDisplayMessages.length - 1]
+      const last = finalDisplayMessages.at(-1)
       const id = isPortableMode
         ? localStreamingMessageId
         : last?.role === 'assistant'
@@ -1400,7 +1398,7 @@ export function ChatScreen({
       return { isStreaming: true, streamingMessageId: id }
     }
     if (waitingForResponse && finalDisplayMessages.length > 0) {
-      const last = finalDisplayMessages[finalDisplayMessages.length - 1]
+      const last = finalDisplayMessages.at(-1)
       if (last && last.role === 'assistant') {
         const isStreamingPlaceholder =
           (last as any).__streamingStatus === 'streaming'
@@ -1435,7 +1433,7 @@ export function ChatScreen({
   useEffect(() => {
     if (waitingForResponse) {
       messageCountAtSendRef.current = finalDisplayMessages.length
-      const lastMsg = finalDisplayMessages[finalDisplayMessages.length - 1]
+      const lastMsg = finalDisplayMessages.at(-1)
       if (lastMsg?.role === 'assistant') {
         const raw = lastMsg as Record<string, unknown>
         lastAssistantIdAtSendRef.current = String(
@@ -1459,7 +1457,7 @@ export function ChatScreen({
       }
       return
     }
-    const last = finalDisplayMessages[finalDisplayMessages.length - 1]
+    const last = finalDisplayMessages.at(-1)
     if (!last || last.role !== 'assistant') return
     if ((last as any).__streamingStatus === 'streaming') return
     const countGrew =
@@ -1645,7 +1643,7 @@ export function ChatScreen({
       void historyQuery.refetch()
     }, 2000)
     return () => window.clearTimeout(timer)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- mount-only
+  }, []) // mount-only
 
   useEffect(() => {
     function handleSSEDrop() {
@@ -2164,13 +2162,6 @@ export function ChatScreen({
   )
 
   useEffect(() => {
-    if (false) {
-      // Server connection checks removed — Hermes uses direct API
-      hasSeenDisconnectRef.current = true
-      retriedQueuedMessageKeysRef.current.clear()
-      return
-    }
-
     if (connectionState === 'connected' && hasSeenDisconnectRef.current) {
       hasSeenDisconnectRef.current = false
       flushRetryableMessages()
@@ -2520,7 +2511,8 @@ export function ChatScreen({
 
   useEffect(() => {
     function handleRunCommand(event: Event) {
-      const detail = (event as CustomEvent<ChatRunCommandDetail>).detail
+      const detail = (event as CustomEvent<ChatRunCommandDetail | undefined>)
+        .detail
       if (!detail?.command) return
       runPaletteSlashCommand(detail.command)
     }
@@ -2705,7 +2697,7 @@ export function ChatScreen({
               renamingTitle={renamingSessionTitle}
               wrapperRef={headerRef}
               onOpenSessions={() => setSessionsOpen(true)}
-              sessions={sessions ?? []}
+              sessions={sessions}
               activeFriendlyId={activeFriendlyId}
               onSelectSession={(key) =>
                 void navigate({
