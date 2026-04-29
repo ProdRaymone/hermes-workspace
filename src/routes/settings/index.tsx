@@ -18,11 +18,12 @@ import type * as React from 'react'
 import type { LoaderStyle } from '@/hooks/use-chat-settings'
 import type { BrailleSpinnerPreset } from '@/components/ui/braille-spinner'
 import type { ThemeId } from '@/lib/theme'
+import type { LocaleId } from '@/lib/i18n'
 import { usePageTitle } from '@/hooks/use-page-title'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { useSettings } from '@/hooks/use-settings'
-import { getLocale, setLocale, LOCALE_LABELS, type LocaleId } from '@/lib/i18n'
+import { LOCALE_LABELS, getLocale, setLocale } from '@/lib/i18n'
 import { THEMES, getTheme, isDarkTheme, setTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 import {
@@ -34,6 +35,8 @@ import { Input } from '@/components/ui/input'
 import { LogoLoader } from '@/components/logo-loader'
 import { BrailleSpinner } from '@/components/ui/braille-spinner'
 import { ThreeDotsSpinner } from '@/components/ui/three-dots-spinner'
+import { useHermesInstances } from '@/hooks/use-hermes-instances'
+import { buildInstanceApiPath } from '@/lib/hermes-instance-scope'
 // useWorkspaceStore removed — hamburger eliminated on mobile
 
 export const Route = createFileRoute('/settings/')({
@@ -276,9 +279,14 @@ const SETTINGS_NAV_ITEMS: Array<SettingsNavItem> = [
   { id: 'language' as SettingsSectionId, label: 'Language' },
 ]
 
+export function buildSettingsModelsPath(instanceId: string) {
+  return buildInstanceApiPath('/api/models', instanceId)
+}
+
 function SettingsRoute() {
   usePageTitle('Settings')
   const { settings, updateSettings } = useSettings()
+  const { activeInstanceId } = useHermesInstances()
 
   // Phase 4.2: Fetch models for preferred model dropdowns
   const [availableModels, setAvailableModels] = useState<
@@ -290,7 +298,7 @@ function SettingsRoute() {
     async function fetchModels() {
       setModelsError(false)
       try {
-        const res = await fetch('/api/models')
+        const res = await fetch(buildSettingsModelsPath(activeInstanceId))
         if (!res.ok) {
           setModelsError(true)
           return
@@ -308,7 +316,7 @@ function SettingsRoute() {
       }
     }
     void fetchModels()
-  }, [])
+  }, [activeInstanceId])
 
   const [activeSection, setActiveSection] =
     useState<SettingsSectionId>('hermes')
@@ -510,8 +518,12 @@ function SettingsRoute() {
                   }}
                   className="h-9 w-full rounded-lg border border-primary-200 dark:border-gray-600 bg-primary-50 dark:bg-gray-800 px-3 text-sm text-primary-900 dark:text-gray-100 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 md:max-w-xs"
                 >
-                  {(Object.entries(LOCALE_LABELS) as Array<[LocaleId, string]>).map(([id, label]) => (
-                    <option key={id} value={id}>{label}</option>
+                  {(
+                    Object.entries(LOCALE_LABELS) as Array<[LocaleId, string]>
+                  ).map(([id, label]) => (
+                    <option key={id} value={id}>
+                      {label}
+                    </option>
                   ))}
                 </select>
               </SettingsRow>
@@ -967,6 +979,7 @@ function HermesConfigSection({
 }: {
   activeView?: 'hermes' | 'agent' | 'routing' | 'voice' | 'display'
 }) {
+  const { activeInstanceId } = useHermesInstances()
   const [data, setData] = useState<HermesConfigData | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -988,16 +1001,18 @@ function HermesConfigSection({
   const syncInputsFromData = useCallback((configData: HermesConfigData) => {
     setModelInput(configData.activeModel || '')
     setProviderInput(configData.activeProvider || '')
-    setBaseUrlInput((configData.config?.base_url as string) || '')
+    setBaseUrlInput((configData.config.base_url as string | undefined) ?? '')
   }, [])
 
   const fetchConfig = useCallback(async () => {
-    const res = await fetch('/api/hermes-config')
+    const res = await fetch(
+      buildInstanceApiPath('/api/hermes-config', activeInstanceId),
+    )
     const configData = (await res.json()) as HermesConfigData
     setData(configData)
     syncInputsFromData(configData)
     return configData
-  }, [syncInputsFromData])
+  }, [activeInstanceId, syncInputsFromData])
 
   const fetchModelsForProvider = useCallback(async (provider: string) => {
     if (!provider) {
@@ -1011,8 +1026,8 @@ function HermesConfigSection({
       )
       if (res.ok) {
         const result = (await res.json()) as AvailableModelsResponse
-        setAvailableModels(result.models || [])
-        if (result.providers?.length) setAvailableProviders(result.providers)
+        setAvailableModels(result.models)
+        if (result.providers.length) setAvailableProviders(result.providers)
       }
     } catch {
       // ignore
@@ -1038,11 +1053,14 @@ function HermesConfigSection({
     setSaving(true)
     setSaveMessage(null)
     try {
-      const res = await fetch('/api/hermes-config', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      })
+      const res = await fetch(
+        buildInstanceApiPath('/api/hermes-config', activeInstanceId),
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updates),
+        },
+      )
       const result = (await res.json()) as { message?: string }
       setSaveMessage(result.message || 'Saved')
       const refreshData = await fetchConfig()
@@ -1111,24 +1129,34 @@ function HermesConfigSection({
     )
   }
 
-  const memoryConfig = (data.config.memory as Record<string, unknown>) || {}
-  const terminalConfig = (data.config.terminal as Record<string, unknown>) || {}
-  const displayConfig = (data.config.display as Record<string, unknown>) || {}
-  const agentConfig = (data.config.agent as Record<string, unknown>) || {}
+  const memoryConfig =
+    (data.config.memory as Record<string, unknown> | undefined) ?? {}
+  const terminalConfig =
+    (data.config.terminal as Record<string, unknown> | undefined) ?? {}
+  const displayConfig =
+    (data.config.display as Record<string, unknown> | undefined) ?? {}
+  const agentConfig =
+    (data.config.agent as Record<string, unknown> | undefined) ?? {}
   const smartRouting =
-    (data.config.smart_model_routing as Record<string, unknown>) || {}
-  const ttsConfig = (data.config.tts as Record<string, unknown>) || {}
-  const sttConfig = (data.config.stt as Record<string, unknown>) || {}
+    (data.config.smart_model_routing as Record<string, unknown> | undefined) ??
+    {}
+  const ttsConfig =
+    (data.config.tts as Record<string, unknown> | undefined) ?? {}
+  const sttConfig =
+    (data.config.stt as Record<string, unknown> | undefined) ?? {}
   const customProviders = Array.isArray(data.config.custom_providers)
     ? (data.config.custom_providers as Array<Record<string, unknown>>)
     : []
 
-  const ttsProvider = (ttsConfig.provider as string) || 'edge'
-  const ttsEdge = (ttsConfig.edge as Record<string, unknown>) || {}
-  const ttsElevenLabs = (ttsConfig.elevenlabs as Record<string, unknown>) || {}
-  const ttsOpenAi = (ttsConfig.openai as Record<string, unknown>) || {}
-  const sttProvider = (sttConfig.provider as string) || 'local'
-  const sttLocal = (sttConfig.local as Record<string, unknown>) || {}
+  const ttsProvider = (ttsConfig.provider as string | undefined) ?? 'edge'
+  const ttsEdge = (ttsConfig.edge as Record<string, unknown> | undefined) ?? {}
+  const ttsElevenLabs =
+    (ttsConfig.elevenlabs as Record<string, unknown> | undefined) ?? {}
+  const ttsOpenAi =
+    (ttsConfig.openai as Record<string, unknown> | undefined) ?? {}
+  const sttProvider = (sttConfig.provider as string | undefined) ?? 'local'
+  const sttLocal =
+    (sttConfig.local as Record<string, unknown> | undefined) ?? {}
 
   const renderHermesOverview = () => (
     <>
@@ -1433,7 +1461,7 @@ function HermesConfigSection({
               size="sm"
               variant="outline"
               onClick={() =>
-                void navigator.clipboard?.writeText(data.hermesHome)
+                void navigator.clipboard.writeText(data.hermesHome)
               }
             >
               Copy config path

@@ -1,7 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json } from '@tanstack/react-start'
 import { isAuthenticated } from '../../../server/auth-middleware'
-import { readKnowledgePage } from '../../../server/knowledge-browser'
+import { resolveRequestHermesInstance } from '../../../server/hermes-instances'
+import {
+  buildKnowledgeScopeForInstance,
+  buildKnowledgeScopePayload,
+  readKnowledgePageForScope,
+} from '../../../server/knowledge-browser'
 
 export const Route = createFileRoute('/api/knowledge/read')({
   server: {
@@ -13,10 +18,20 @@ export const Route = createFileRoute('/api/knowledge/read')({
 
         const url = new URL(request.url)
         const pathParam = url.searchParams.get('path') || ''
+        const instance = await resolveRequestHermesInstance(request)
+        const scope = buildKnowledgeScopeForInstance(instance)
 
         try {
-          const { meta, content, backlinks } = readKnowledgePage(pathParam)
-          return json({ page: meta, content, backlinks })
+          const { meta, content, backlinks } = await readKnowledgePageForScope(
+            pathParam,
+            scope,
+          )
+          return json({
+            page: meta,
+            content,
+            backlinks,
+            scope: buildKnowledgeScopePayload(scope),
+          })
         } catch (error) {
           const message =
             error instanceof Error
@@ -29,8 +44,13 @@ export const Route = createFileRoute('/api/knowledge/read')({
               ? 400
               : /ENOENT/.test(message)
                 ? 404
-                : 500
-          return json({ error: message }, { status })
+                : /unavailable/i.test(message)
+                  ? 503
+                  : 500
+          return json(
+            { error: message, scope: buildKnowledgeScopePayload(scope) },
+            { status },
+          )
         }
       },
     },

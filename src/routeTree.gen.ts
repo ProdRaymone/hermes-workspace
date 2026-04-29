@@ -59,6 +59,8 @@ import { Route as ApiEventsRouteImport } from './routes/api/events'
 import { Route as ApiCrewStatusRouteImport } from './routes/api/crew-status'
 import { Route as ApiContextUsageRouteImport } from './routes/api/context-usage'
 import { Route as ApiConnectionStatusRouteImport } from './routes/api/connection-status'
+import { Route as ApiConfigPatchRouteImport } from './routes/api/config-patch'
+import { Route as ApiConfigGetRouteImport } from './routes/api/config-get'
 import { Route as ApiConductorStopRouteImport } from './routes/api/conductor-stop'
 import { Route as ApiConductorSpawnRouteImport } from './routes/api/conductor-spawn'
 import { Route as ApiChatEventsRouteImport } from './routes/api/chat-events'
@@ -349,6 +351,16 @@ const ApiConnectionStatusRoute = ApiConnectionStatusRouteImport.update({
   path: '/api/connection-status',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiConfigPatchRoute = ApiConfigPatchRouteImport.update({
+  id: '/api/config-patch',
+  path: '/api/config-patch',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiConfigGetRoute = ApiConfigGetRouteImport.update({
+  id: '/api/config-get',
+  path: '/api/config-get',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiConductorStopRoute = ApiConductorStopRouteImport.update({
   id: '/api/conductor-stop',
   path: '/api/conductor-stop',
@@ -566,6 +578,8 @@ export interface FileRoutesByFullPath {
   '/api/chat-events': typeof ApiChatEventsRoute
   '/api/conductor-spawn': typeof ApiConductorSpawnRoute
   '/api/conductor-stop': typeof ApiConductorStopRoute
+  '/api/config-get': typeof ApiConfigGetRoute
+  '/api/config-patch': typeof ApiConfigPatchRoute
   '/api/connection-status': typeof ApiConnectionStatusRoute
   '/api/context-usage': typeof ApiContextUsageRoute
   '/api/crew-status': typeof ApiCrewStatusRoute
@@ -656,6 +670,8 @@ export interface FileRoutesByTo {
   '/api/chat-events': typeof ApiChatEventsRoute
   '/api/conductor-spawn': typeof ApiConductorSpawnRoute
   '/api/conductor-stop': typeof ApiConductorStopRoute
+  '/api/config-get': typeof ApiConfigGetRoute
+  '/api/config-patch': typeof ApiConfigPatchRoute
   '/api/connection-status': typeof ApiConnectionStatusRoute
   '/api/context-usage': typeof ApiContextUsageRoute
   '/api/crew-status': typeof ApiCrewStatusRoute
@@ -748,6 +764,8 @@ export interface FileRoutesById {
   '/api/chat-events': typeof ApiChatEventsRoute
   '/api/conductor-spawn': typeof ApiConductorSpawnRoute
   '/api/conductor-stop': typeof ApiConductorStopRoute
+  '/api/config-get': typeof ApiConfigGetRoute
+  '/api/config-patch': typeof ApiConfigPatchRoute
   '/api/connection-status': typeof ApiConnectionStatusRoute
   '/api/context-usage': typeof ApiContextUsageRoute
   '/api/crew-status': typeof ApiCrewStatusRoute
@@ -841,6 +859,8 @@ export interface FileRouteTypes {
     | '/api/chat-events'
     | '/api/conductor-spawn'
     | '/api/conductor-stop'
+    | '/api/config-get'
+    | '/api/config-patch'
     | '/api/connection-status'
     | '/api/context-usage'
     | '/api/crew-status'
@@ -931,6 +951,8 @@ export interface FileRouteTypes {
     | '/api/chat-events'
     | '/api/conductor-spawn'
     | '/api/conductor-stop'
+    | '/api/config-get'
+    | '/api/config-patch'
     | '/api/connection-status'
     | '/api/context-usage'
     | '/api/crew-status'
@@ -1022,6 +1044,8 @@ export interface FileRouteTypes {
     | '/api/chat-events'
     | '/api/conductor-spawn'
     | '/api/conductor-stop'
+    | '/api/config-get'
+    | '/api/config-patch'
     | '/api/connection-status'
     | '/api/context-usage'
     | '/api/crew-status'
@@ -1114,6 +1138,8 @@ export interface RootRouteChildren {
   ApiChatEventsRoute: typeof ApiChatEventsRoute
   ApiConductorSpawnRoute: typeof ApiConductorSpawnRoute
   ApiConductorStopRoute: typeof ApiConductorStopRoute
+  ApiConfigGetRoute: typeof ApiConfigGetRoute
+  ApiConfigPatchRoute: typeof ApiConfigPatchRoute
   ApiConnectionStatusRoute: typeof ApiConnectionStatusRoute
   ApiContextUsageRoute: typeof ApiContextUsageRoute
   ApiCrewStatusRoute: typeof ApiCrewStatusRoute
@@ -1521,6 +1547,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiConnectionStatusRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/config-patch': {
+      id: '/api/config-patch'
+      path: '/api/config-patch'
+      fullPath: '/api/config-patch'
+      preLoaderRoute: typeof ApiConfigPatchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/config-get': {
+      id: '/api/config-get'
+      path: '/api/config-get'
+      fullPath: '/api/config-get'
+      preLoaderRoute: typeof ApiConfigGetRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/conductor-stop': {
       id: '/api/conductor-stop'
       path: '/api/conductor-stop'
@@ -1922,6 +1962,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiChatEventsRoute: ApiChatEventsRoute,
   ApiConductorSpawnRoute: ApiConductorSpawnRoute,
   ApiConductorStopRoute: ApiConductorStopRoute,
+  ApiConfigGetRoute: ApiConfigGetRoute,
+  ApiConfigPatchRoute: ApiConfigPatchRoute,
   ApiConnectionStatusRoute: ApiConnectionStatusRoute,
   ApiContextUsageRoute: ApiContextUsageRoute,
   ApiCrewStatusRoute: ApiCrewStatusRoute,

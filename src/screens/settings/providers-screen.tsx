@@ -20,6 +20,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from '@/components/ui/toast'
 import { getUnavailableReason } from '@/lib/feature-gates'
 import { useFeatureAvailable } from '@/hooks/use-feature-available'
+import { useHermesInstances } from '@/hooks/use-hermes-instances'
+import {
+  buildInstanceApiPath,
+  isDefaultHermesInstance,
+} from '@/lib/hermes-instance-scope'
 import {
   getProviderDisplayName,
   getProviderInfo,
@@ -29,19 +34,29 @@ import { cn } from '@/lib/utils'
 
 // FIX: replaced direct server module imports with workspace API calls to avoid
 // bundling Node.js-only modules (node:sqlite, node:fs) into the client bundle.
-async function getConfig(): Promise<Record<string, unknown>> {
-  const res = await fetch('/api/hermes-config')
+async function getConfig(
+  instanceId = 'default',
+): Promise<Record<string, unknown>> {
+  const res = await fetch(
+    buildInstanceApiPath('/api/hermes-config', instanceId),
+  )
   if (!res.ok) throw new Error(`Failed to load config: HTTP ${res.status}`)
-  const data = await res.json() as { config?: Record<string, unknown> }
+  const data = (await res.json()) as { config?: Record<string, unknown> }
   return data.config ?? {}
 }
 
-async function patchConfig(patch: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await fetch('/api/hermes-config', {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ config: patch }),
-  })
+async function patchConfig(
+  patch: Record<string, unknown>,
+  instanceId = 'default',
+): Promise<Record<string, unknown>> {
+  const res = await fetch(
+    buildInstanceApiPath('/api/hermes-config', instanceId),
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: patch }),
+    },
+  )
   if (!res.ok) throw new Error(`Failed to save config: HTTP ${res.status}`)
   return res.json() as Promise<Record<string, unknown>>
 }
@@ -152,12 +167,12 @@ function isHermesCatalogEntry(
   return entry !== null
 }
 
-async function fetchModels(): Promise<{
+async function fetchModels(instanceId = 'default'): Promise<{
   ok?: boolean
   models?: Array<ModelCatalogEntry>
   configuredProviders?: Array<string>
 }> {
-  const response = await fetch('/api/models')
+  const response = await fetch(buildInstanceApiPath('/api/models', instanceId))
   if (!response.ok) {
     throw new Error(`Models request failed (${response.status})`)
   }
@@ -457,7 +472,9 @@ function getDraftValue(
   config: HermesConfig | undefined,
   draftValues: Record<string, string>,
 ): string {
-  if (draftValues[setting.id] !== undefined) return draftValues[setting.id]
+  if (Object.prototype.hasOwnProperty.call(draftValues, setting.id)) {
+    return draftValues[setting.id] ?? ''
+  }
   if (!setting.path) return ''
   const rawValue = readPath(config, setting.path)
   if (setting.formatter) return setting.formatter(rawValue)
@@ -1007,6 +1024,7 @@ function ActiveModelCard({
   modelOptions: Array<SelectOption>
 }) {
   const queryClient = useQueryClient()
+  const { activeInstanceId } = useHermesInstances()
   const [primaryConfig, setPrimaryConfig] = useState<ModelConfigDraft>({
     provider: 'custom',
     model: '',
@@ -1024,8 +1042,8 @@ function ActiveModelCard({
   const [showFallback, setShowFallback] = useState(false)
 
   const configQuery = useQuery({
-    queryKey: ['hermes', 'active-config'],
-    queryFn: getConfig,
+    queryKey: ['hermes', 'active-config', activeInstanceId],
+    queryFn: () => getConfig(activeInstanceId),
   })
 
   const saveMutation = useMutation({
@@ -1065,12 +1083,12 @@ function ActiveModelCard({
           }
         : null
 
-      await patchConfig(patch)
+      await patchConfig(patch, activeInstanceId)
     },
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: ['hermes', 'active-config'],
+          queryKey: ['hermes', 'active-config', activeInstanceId],
         }),
         queryClient.invalidateQueries({ queryKey: ['hermes', 'config'] }),
         queryClient.invalidateQueries({ queryKey: ['hermes-config'] }),
@@ -1412,7 +1430,10 @@ function ProviderManagementSection(props: {
 
 export function ProvidersScreen({ embedded = false }: ProvidersScreenProps) {
   const queryClient = useQueryClient()
-  const configAvailable = useFeatureAvailable('config')
+  const { activeInstanceId } = useHermesInstances()
+  const gatewayConfigAvailable = useFeatureAvailable('config', activeInstanceId)
+  const configAvailable =
+    !isDefaultHermesInstance(activeInstanceId) || gatewayConfigAvailable
   const [activeTab, setActiveTab] = useState<SettingsTabId>('providers')
   const [search, setSearch] = useState('')
   const [draftValues, setDraftValues] = useState<Record<string, string>>({})
@@ -1422,17 +1443,19 @@ export function ProvidersScreen({ embedded = false }: ProvidersScreenProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const modelsQuery = useQuery({
-    queryKey: ['hermes', 'providers', 'models'],
-    queryFn: fetchModels,
+    queryKey: ['hermes', 'providers', 'models', activeInstanceId],
+    queryFn: () => fetchModels(activeInstanceId),
     refetchInterval: 60_000,
     retry: false,
     enabled: configAvailable,
   })
 
   const configQuery = useQuery({
-    queryKey: ['hermes', 'config'],
+    queryKey: ['hermes', 'config', activeInstanceId],
     queryFn: async () => {
-      const response = await fetch('/api/config-get')
+      const response = await fetch(
+        buildInstanceApiPath('/api/config-get', activeInstanceId),
+      )
       const payload = (await response
         .json()
         .catch(() => ({}))) as ConfigQueryResponse
@@ -1447,11 +1470,14 @@ export function ProvidersScreen({ embedded = false }: ProvidersScreenProps) {
 
   const saveMutation = useMutation({
     mutationFn: async ({ path, value }: SaveSettingPayload) => {
-      const response = await fetch('/api/config-patch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, value }),
-      })
+      const response = await fetch(
+        buildInstanceApiPath('/api/config-patch', activeInstanceId),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path, value }),
+        },
+      )
       const payload = (await response
         .json()
         .catch(() => ({}))) as ConfigPatchResponse
@@ -1460,7 +1486,9 @@ export function ProvidersScreen({ embedded = false }: ProvidersScreenProps) {
       }
     },
     onSuccess: async (_, variables) => {
-      await queryClient.invalidateQueries({ queryKey: ['hermes', 'config'] })
+      await queryClient.invalidateQueries({
+        queryKey: ['hermes', 'config', activeInstanceId],
+      })
       toast(`${variables.label} saved`, { type: 'success' })
     },
     onError: (error) => {
@@ -1541,14 +1569,17 @@ export function ProvidersScreen({ embedded = false }: ProvidersScreenProps) {
 
     setDeletingId(provider.id)
     try {
-      const res = await fetch('/api/hermes-config', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          action: 'remove-provider',
-          provider: provider.id,
-        }),
-      })
+      const res = await fetch(
+        buildInstanceApiPath('/api/hermes-config', activeInstanceId),
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            action: 'remove-provider',
+            provider: provider.id,
+          }),
+        },
+      )
       const data = (await res.json()) as { ok: boolean; error?: string }
       if (!data.ok) {
         toast(`Failed to remove provider: ${data.error ?? 'Unknown error'}`, {
@@ -1556,7 +1587,7 @@ export function ProvidersScreen({ embedded = false }: ProvidersScreenProps) {
         })
       } else {
         await queryClient.invalidateQueries({
-          queryKey: ['hermes', 'providers', 'models'],
+          queryKey: ['hermes', 'providers', 'models', activeInstanceId],
         })
         toast(`Provider "${provider.name}" removed`, { type: 'success' })
       }
@@ -1752,6 +1783,7 @@ export function ProvidersScreen({ embedded = false }: ProvidersScreenProps) {
         open={wizardOpen}
         onOpenChange={handleWizardOpenChange}
         editProvider={editingProvider}
+        instanceId={activeInstanceId}
       />
     </div>
   )

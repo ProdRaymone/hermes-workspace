@@ -1,3 +1,5 @@
+import { Moon02Icon, Sun02Icon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
@@ -11,19 +13,16 @@ import {
   YAxis,
 } from 'recharts'
 import type { ReactNode } from 'react'
+import type { HermesInstanceSummary } from '@/hooks/use-hermes-instances'
 import type { HermesSession } from '@/server/hermes-api'
 import { getUnavailableReason } from '@/lib/feature-gates'
 import { useFeatureAvailable } from '@/hooks/use-feature-available'
+import { buildInstanceApiPath } from '@/lib/hermes-instance-scope'
 import { cn } from '@/lib/utils'
 import { openHamburgerMenu } from '@/components/mobile-hamburger-menu'
 import { applyTheme, useSettingsStore } from '@/hooks/use-settings'
-import { HugeiconsIcon } from '@hugeicons/react'
-import { Moon02Icon, Sun02Icon } from '@hugeicons/core-free-icons'
 import { HermesInstanceScopeBanner } from '@/components/hermes-instance-scope-banner'
-import {
-  useHermesInstances,
-  type HermesInstanceSummary,
-} from '@/hooks/use-hermes-instances'
+import { useHermesInstances } from '@/hooks/use-hermes-instances'
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -144,7 +143,10 @@ function EnhancedBadge({ label = 'Enhanced API' }: { label?: string }) {
       className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]"
       style={{
         border: `1px solid ${themeColor('--theme-accent-border', 'rgba(245, 158, 11, 0.28)')}`,
-        background: themeColor('--theme-accent-subtle', 'rgba(245, 158, 11, 0.12)'),
+        background: themeColor(
+          '--theme-accent-subtle',
+          'rgba(245, 158, 11, 0.12)',
+        ),
         color: themeColor('--theme-accent', '#f59e0b'),
       }}
     >
@@ -311,15 +313,35 @@ function ActivityChart({
           >
             <defs>
               <linearGradient id="g-sessions" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={palette.accent} stopOpacity={0.3} />
-                <stop offset="100%" stopColor={palette.accent} stopOpacity={0} />
+                <stop
+                  offset="0%"
+                  stopColor={palette.accent}
+                  stopOpacity={0.3}
+                />
+                <stop
+                  offset="100%"
+                  stopColor={palette.accent}
+                  stopOpacity={0}
+                />
               </linearGradient>
               <linearGradient id="g-messages" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={palette.success} stopOpacity={0.2} />
-                <stop offset="100%" stopColor={palette.success} stopOpacity={0} />
+                <stop
+                  offset="0%"
+                  stopColor={palette.success}
+                  stopOpacity={0.2}
+                />
+                <stop
+                  offset="100%"
+                  stopColor={palette.success}
+                  stopOpacity={0}
+                />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke={palette.border} opacity={0.45} />
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke={palette.border}
+              opacity={0.45}
+            />
             <XAxis
               dataKey="date"
               tick={{ fontSize: 10, fill: palette.muted }}
@@ -375,11 +397,17 @@ function ActivityChart({
       </div>
       <div className="mt-2 flex items-center gap-5 text-[10px] text-muted">
         <span className="flex items-center gap-1.5">
-          <span className="size-2 rounded-full" style={{ background: palette.accent }} />
+          <span
+            className="size-2 rounded-full"
+            style={{ background: palette.accent }}
+          />
           Sessions
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="size-2 rounded-full" style={{ background: palette.success }} />
+          <span
+            className="size-2 rounded-full"
+            style={{ background: palette.success }}
+          />
           Messages
         </span>
       </div>
@@ -430,7 +458,10 @@ function ModelCard({
         <div className="flex items-center gap-3 rounded-lg p-2.5 bg-[var(--theme-card2)] border border-[var(--theme-border)]">
           <div
             className="flex size-7 items-center justify-center rounded-md text-sm"
-            style={{ background: alpha(palette.accent, 0.1), color: palette.accent }}
+            style={{
+              background: alpha(palette.accent, 0.1),
+              color: palette.accent,
+            }}
           >
             🤖
           </div>
@@ -473,12 +504,15 @@ function SkillsWidget({
   instanceId: string
 }) {
   const skillsFeatureAvailable = useFeatureAvailable('skills', instanceId)
-  const skillsAvailable = instanceId === 'default' && skillsFeatureAvailable
+  const skillsAvailable = skillsFeatureAvailable
   const skillsQuery = useQuery({
     queryKey: ['hermes-skills', instanceId],
     queryFn: async () => {
       const res = await fetch(
-        '/api/skills?tab=installed&limit=8&summary=search',
+        buildInstanceApiPath(
+          '/api/skills?tab=installed&limit=8&summary=search',
+          instanceId,
+        ),
       )
       if (!res.ok) return []
       const data = await res.json()
@@ -494,11 +528,7 @@ function SkillsWidget({
     return (
       <UnavailableWidget
         title="Skills"
-        description={
-          instanceId === 'default'
-            ? getUnavailableReason('skills')
-            : 'Skills inventory is still default-profile scoped in V1, so it is hidden for Hermes2/3 until the instance-scoped skills API is wired.'
-        }
+        description={getUnavailableReason('skills')}
       />
     )
   }
@@ -664,8 +694,7 @@ export function DashboardScreen() {
   const { activeInstanceId, activeInstance } = useHermesInstances()
   const sessionsAvailable = useFeatureAvailable('sessions', activeInstanceId)
   const skillsFeatureAvailable = useFeatureAvailable('skills', activeInstanceId)
-  const skillsAvailable =
-    activeInstanceId === 'default' && skillsFeatureAvailable
+  const skillsAvailable = skillsFeatureAvailable
   const sessionsQuery = useQuery({
     // Use a dedicated query key — NOT chatQueryKeys.sessions — to avoid
     // cache collisions with the chat sidebar which fetches fewer sessions
@@ -699,7 +728,7 @@ export function DashboardScreen() {
     enabled: sessionsAvailable,
   })
 
-  const sessions = (sessionsQuery.data ?? []) as HermesSession[]
+  const sessions: Array<HermesSession> = sessionsQuery.data ?? []
 
   const stats = useMemo(() => {
     let totalMessages = 0,
@@ -748,15 +777,30 @@ export function DashboardScreen() {
   return (
     <div className="min-h-full">
       {/* Floating mobile nav: hamburger left, theme toggle right */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-2 h-12" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+      <div
+        className="md:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-2 h-12"
+        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+      >
         <button
           type="button"
           aria-label="Open navigation menu"
           onClick={openHamburgerMenu}
           className="flex items-center justify-center w-11 h-11 rounded-xl active:bg-white/10 transition-colors touch-manipulation"
         >
-          <svg width="20" height="16" viewBox="0 0 20 16" fill="none" className="opacity-70" style={{ color: 'var(--color-ink, #111)' }}>
-            <path d="M1 1.5H19M1 8H19M1 14.5H13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <svg
+            width="20"
+            height="16"
+            viewBox="0 0 20 16"
+            fill="none"
+            className="opacity-70"
+            style={{ color: 'var(--color-ink, #111)' }}
+          >
+            <path
+              d="M1 1.5H19M1 8H19M1 14.5H13"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+            />
           </svg>
         </button>
         <button
@@ -773,9 +817,15 @@ export function DashboardScreen() {
               'hermes-slate': 'hermes-slate-light',
               'hermes-slate-light': 'hermes-slate',
             }
-            const cur = document.documentElement.getAttribute('data-theme') || 'hermes-official'
-            const nextDataTheme = LIGHT_DARK_PAIRS[cur] || (isDark ? 'hermes-official-light' : 'hermes-official')
-            import('@/lib/theme').then(({ setTheme }) => { setTheme(nextDataTheme as any) })
+            const cur =
+              document.documentElement.getAttribute('data-theme') ||
+              'hermes-official'
+            const nextDataTheme =
+              LIGHT_DARK_PAIRS[cur] ||
+              (isDark ? 'hermes-official-light' : 'hermes-official')
+            import('@/lib/theme').then(({ setTheme }) => {
+              setTheme(nextDataTheme as any)
+            })
             const nextMode = nextDataTheme.endsWith('-light') ? 'light' : 'dark'
             applyTheme(nextMode)
             updateSettings({ theme: nextMode })
@@ -784,173 +834,177 @@ export function DashboardScreen() {
           className="flex items-center justify-center w-11 h-11 rounded-xl active:bg-white/10 transition-colors touch-manipulation"
           style={{ color: 'var(--theme-muted)' }}
         >
-          <HugeiconsIcon icon={isDark ? Sun02Icon : Moon02Icon} size={20} strokeWidth={1.5} />
+          <HugeiconsIcon
+            icon={isDark ? Sun02Icon : Moon02Icon}
+            size={20}
+            strokeWidth={1.5}
+          />
         </button>
       </div>
       <div className="px-4 pt-14 md:pt-4 py-4 md:px-8 md:py-6 lg:px-10 space-y-5 pb-28">
-      {/* ── Header: Hermes Logo + Quick Actions ── */}
-      <div className="flex flex-col items-center gap-3 py-3">
-        <img
-          src="/hermes-avatar.webp"
-          alt="Hermes"
-          className="size-12 md:size-14 rounded-md border border-[var(--theme-border)]"
-          style={{ padding: '3px', background: 'var(--theme-card)' }}
-        />
-        <p className="micro-label" style={{ color: 'var(--theme-muted)' }}>
-          Hermes Workspace
-        </p>
-        <div className="mt-1 grid w-full max-w-2xl grid-cols-2 gap-2 sm:grid-cols-4">
-          <QuickAction
-            label="New Chat"
-            icon="💬"
-            accentColor={palette.accent}
-            onClick={() =>
-              navigate({
-                to: '/chat/$sessionKey',
-                params: { sessionKey: 'new' },
-              })
-            }
+        {/* ── Header: Hermes Logo + Quick Actions ── */}
+        <div className="flex flex-col items-center gap-3 py-3">
+          <img
+            src="/hermes-avatar.webp"
+            alt="Hermes"
+            className="size-12 md:size-14 rounded-md border border-[var(--theme-border)]"
+            style={{ padding: '3px', background: 'var(--theme-card)' }}
           />
-          <QuickAction
-            label="Terminal"
-            icon="💻"
-            accentColor={palette.success}
-            onClick={() => navigate({ to: '/terminal' })}
-          />
-          <QuickAction
-            label="Skills"
-            icon="🧩"
-            accentColor={palette.warning}
-            onClick={() => navigate({ to: '/skills' })}
-            disabled={!skillsAvailable}
-            badge={!skillsAvailable ? 'Enhanced' : undefined}
-          />
-          <QuickAction
-            label="Settings"
-            icon="⚙️"
-            accentColor={palette.accentSecondary}
-            onClick={() => navigate({ to: '/settings' })}
-          />
-        </div>
-        <HermesInstanceScopeBanner
-          className="w-full max-w-2xl"
-          instance={activeInstance}
-          scopeKind="instance-scoped"
-          title="Dashboard scope"
-          detail="Sessions, status, and activity are read for the selected Hermes agent; stopped agents stay visible as stopped rather than inheriting Hermes1 state."
-        />
-      </div>
-
-      {/* ── Metrics Row ── */}
-      {sessionsAvailable ? (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <MetricTile
-            label="Sessions"
-            value={formatNumber(stats.totalSessions)}
-            icon="💬"
-            accentColor={palette.accent}
-          />
-          <MetricTile
-            label="Messages"
-            value={formatNumber(stats.totalMessages)}
-            icon="✉️"
-            accentColor={palette.success}
-          />
-          <MetricTile
-            label="Tool Calls"
-            value={formatNumber(stats.totalToolCalls)}
-            icon="🔧"
-            accentColor={palette.warning}
-          />
-          <MetricTile
-            label="Tokens"
-            value={formatNumber(stats.totalTokens)}
-            sub={costEstimate}
-            icon="⚡"
-            accentColor={palette.accentSecondary}
-          />
-        </div>
-      ) : (
-        <UnavailableWidget
-          title="Workspace Analytics"
-          description={getUnavailableReason('sessions')}
-        />
-      )}
-
-      {/* ── Charts + Model + Skills ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
-        <div className="lg:col-span-5">
-          {sessionsAvailable ? (
-            <ActivityChart sessions={sessions} palette={palette} />
-          ) : (
-            <UnavailableWidget
-              title="Activity"
-              description={getUnavailableReason('sessions')}
-            />
-          )}
-        </div>
-        <div className="lg:col-span-4">
-          <ModelCard
-            palette={palette}
-            instance={activeInstance}
-            connected={sessionsAvailable}
-          />
-        </div>
-        <div className="lg:col-span-3">
-          <SkillsWidget palette={palette} instanceId={activeInstanceId} />
-        </div>
-      </div>
-
-      {/* ── Recent Sessions (minimal) ── */}
-      {sessionsAvailable ? (
-        <GlassCard
-          title="Recent Sessions"
-          titleRight={
-            <button
-              type="button"
-              className="text-[10px] text-muted hover:text-neutral-300 transition-colors"
+          <p className="micro-label" style={{ color: 'var(--theme-muted)' }}>
+            Hermes Workspace
+          </p>
+          <div className="mt-1 grid w-full max-w-2xl grid-cols-2 gap-2 sm:grid-cols-4">
+            <QuickAction
+              label="New Chat"
+              icon="💬"
+              accentColor={palette.accent}
               onClick={() =>
                 navigate({
                   to: '/chat/$sessionKey',
-                  params: { sessionKey: 'main' },
+                  params: { sessionKey: 'new' },
                 })
               }
-            >
-              View all →
-            </button>
-          }
-          accentColor={palette.accent}
-          noPadding
-        >
-          <div className="py-1">
-            {recentSessions.length === 0 ? (
-              <div className="text-xs text-neutral-400 py-8 text-center">
-                No sessions yet — start a chat!
-              </div>
+            />
+            <QuickAction
+              label="Terminal"
+              icon="💻"
+              accentColor={palette.success}
+              onClick={() => navigate({ to: '/terminal' })}
+            />
+            <QuickAction
+              label="Skills"
+              icon="🧩"
+              accentColor={palette.warning}
+              onClick={() => navigate({ to: '/skills' })}
+              disabled={!skillsAvailable}
+              badge={!skillsAvailable ? 'Enhanced' : undefined}
+            />
+            <QuickAction
+              label="Settings"
+              icon="⚙️"
+              accentColor={palette.accentSecondary}
+              onClick={() => navigate({ to: '/settings' })}
+            />
+          </div>
+          <HermesInstanceScopeBanner
+            className="w-full max-w-2xl"
+            instance={activeInstance}
+            scopeKind="instance-scoped"
+            title="Dashboard scope"
+            detail="Sessions, status, and activity are read for the selected Hermes agent; stopped agents stay visible as stopped rather than inheriting Hermes1 state."
+          />
+        </div>
+
+        {/* ── Metrics Row ── */}
+        {sessionsAvailable ? (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <MetricTile
+              label="Sessions"
+              value={formatNumber(stats.totalSessions)}
+              icon="💬"
+              accentColor={palette.accent}
+            />
+            <MetricTile
+              label="Messages"
+              value={formatNumber(stats.totalMessages)}
+              icon="✉️"
+              accentColor={palette.success}
+            />
+            <MetricTile
+              label="Tool Calls"
+              value={formatNumber(stats.totalToolCalls)}
+              icon="🔧"
+              accentColor={palette.warning}
+            />
+            <MetricTile
+              label="Tokens"
+              value={formatNumber(stats.totalTokens)}
+              sub={costEstimate}
+              icon="⚡"
+              accentColor={palette.accentSecondary}
+            />
+          </div>
+        ) : (
+          <UnavailableWidget
+            title="Workspace Analytics"
+            description={getUnavailableReason('sessions')}
+          />
+        )}
+
+        {/* ── Charts + Model + Skills ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+          <div className="lg:col-span-5">
+            {sessionsAvailable ? (
+              <ActivityChart sessions={sessions} palette={palette} />
             ) : (
-              recentSessions.map((s) => (
-                <SessionRow
-                  key={s.id}
-                  session={s}
-                  maxTokens={maxTokens}
-                  palette={palette}
-                  onClick={() =>
-                    navigate({
-                      to: '/chat/$sessionKey',
-                      params: { sessionKey: s.id },
-                    })
-                  }
-                />
-              ))
+              <UnavailableWidget
+                title="Activity"
+                description={getUnavailableReason('sessions')}
+              />
             )}
           </div>
-        </GlassCard>
-      ) : (
-        <UnavailableWidget
-          title="Recent Sessions"
-          description={getUnavailableReason('sessions')}
-        />
-      )}
+          <div className="lg:col-span-4">
+            <ModelCard
+              palette={palette}
+              instance={activeInstance}
+              connected={sessionsAvailable}
+            />
+          </div>
+          <div className="lg:col-span-3">
+            <SkillsWidget palette={palette} instanceId={activeInstanceId} />
+          </div>
+        </div>
+
+        {/* ── Recent Sessions (minimal) ── */}
+        {sessionsAvailable ? (
+          <GlassCard
+            title="Recent Sessions"
+            titleRight={
+              <button
+                type="button"
+                className="text-[10px] text-muted hover:text-neutral-300 transition-colors"
+                onClick={() =>
+                  navigate({
+                    to: '/chat/$sessionKey',
+                    params: { sessionKey: 'main' },
+                  })
+                }
+              >
+                View all →
+              </button>
+            }
+            accentColor={palette.accent}
+            noPadding
+          >
+            <div className="py-1">
+              {recentSessions.length === 0 ? (
+                <div className="text-xs text-neutral-400 py-8 text-center">
+                  No sessions yet — start a chat!
+                </div>
+              ) : (
+                recentSessions.map((s) => (
+                  <SessionRow
+                    key={s.id}
+                    session={s}
+                    maxTokens={maxTokens}
+                    palette={palette}
+                    onClick={() =>
+                      navigate({
+                        to: '/chat/$sessionKey',
+                        params: { sessionKey: s.id },
+                      })
+                    }
+                  />
+                ))
+              )}
+            </div>
+          </GlassCard>
+        ) : (
+          <UnavailableWidget
+            title="Recent Sessions"
+            description={getUnavailableReason('sessions')}
+          />
+        )}
       </div>
     </div>
   )

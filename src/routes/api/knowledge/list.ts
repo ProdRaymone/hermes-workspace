@@ -1,11 +1,15 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json } from '@tanstack/react-start'
 import { isAuthenticated } from '../../../server/auth-middleware'
+import { resolveRequestHermesInstance } from '../../../server/hermes-instances'
 import {
+  buildKnowledgeScopeForInstance,
+  buildKnowledgeScopePayload,
+  getKnowledgeRootForScope,
   knowledgeRootExists,
-  listKnowledgePages,
+  listKnowledgePagesForScope,
+  readKnowledgeBaseConfigForScope,
 } from '../../../server/knowledge-browser'
-import { readKnowledgeBaseConfig } from '../../../server/knowledge-config'
 
 export const Route = createFileRoute('/api/knowledge/list')({
   server: {
@@ -14,25 +18,34 @@ export const Route = createFileRoute('/api/knowledge/list')({
         if (!isAuthenticated(request)) {
           return json({ error: 'Unauthorized' }, { status: 401 })
         }
+        const instance = await resolveRequestHermesInstance(request)
+        const scope = buildKnowledgeScopeForInstance(instance)
 
         try {
-          const config = readKnowledgeBaseConfig()
+          const config = await readKnowledgeBaseConfigForScope(scope)
           const source = config.source
-          const exists = knowledgeRootExists()
+          const pages = await listKnowledgePagesForScope(scope)
+          const exists =
+            scope.kind === 'workspace-local' ? knowledgeRootExists() : true
           return json({
-            pages: exists ? listKnowledgePages() : [],
+            pages,
             exists,
             source,
+            knowledgeRoot: await getKnowledgeRootForScope(scope),
+            scope: buildKnowledgeScopePayload(scope),
           })
         } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : 'Failed to list knowledge pages'
+          const status = /unavailable/i.test(message) ? 503 : 500
           return json(
             {
-              error:
-                error instanceof Error
-                  ? error.message
-                  : 'Failed to list knowledge pages',
+              error: message,
+              scope: buildKnowledgeScopePayload(scope),
             },
-            { status: 500 },
+            { status },
           )
         }
       },

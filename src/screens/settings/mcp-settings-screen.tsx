@@ -9,6 +9,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Link } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
+import { getMcpSettingsInstanceLabel } from './mcp-settings-screen-state'
 import { writeTextToClipboard } from '@/lib/clipboard'
 import { Button } from '@/components/ui/button'
 import {
@@ -21,6 +22,8 @@ import {
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from '@/components/ui/toast'
+import { useHermesInstances } from '@/hooks/use-hermes-instances'
+import { buildInstanceApiPath } from '@/lib/hermes-instance-scope'
 import { cn } from '@/lib/utils'
 
 type Transport = 'stdio' | 'http'
@@ -42,6 +45,7 @@ type McpServersResponse = {
   ok?: boolean
   code?: string
   message?: string
+  source?: 'selected-gateway' | 'profile-file'
   servers?: Array<McpServer>
 }
 
@@ -385,6 +389,11 @@ function ServerDialog(props: {
 }
 
 export function McpSettingsScreen() {
+  const { activeInstanceId, activeInstance } = useHermesInstances()
+  const activeInstanceLabel = getMcpSettingsInstanceLabel(
+    activeInstance,
+    activeInstanceId,
+  )
   const [servers, setServers] = useState<Array<McpServer>>([])
   const [originalServers, setOriginalServers] = useState<Array<McpServer>>([])
   const [loading, setLoading] = useState(true)
@@ -399,7 +408,9 @@ export function McpSettingsScreen() {
     async function loadServers() {
       setLoading(true)
       try {
-        const response = await fetch('/api/mcp/servers')
+        const response = await fetch(
+          buildInstanceApiPath('/api/mcp/servers', activeInstanceId),
+        )
         const payload = (await response
           .json()
           .catch(() => ({}))) as McpServersResponse
@@ -408,7 +419,9 @@ export function McpSettingsScreen() {
           : []
         setServers(loadedServers)
         setOriginalServers(loadedServers)
-        if (payload.ok === false) setReloadAvailable(false)
+        setReloadAvailable(
+          payload.ok !== false && payload.source !== 'profile-file',
+        )
         setNotice(payload.message ?? null)
       } catch {
         setNotice(
@@ -420,7 +433,7 @@ export function McpSettingsScreen() {
     }
 
     void loadServers()
-  }, [])
+  }, [activeInstanceId])
 
   const yamlSnippet = useMemo(() => buildYamlSnippet(servers), [servers])
 
@@ -500,7 +513,10 @@ export function McpSettingsScreen() {
   async function handleReload() {
     setReloadPending(true)
     try {
-      const response = await fetch('/api/mcp/reload', { method: 'POST' })
+      const response = await fetch(
+        buildInstanceApiPath('/api/mcp/reload', activeInstanceId),
+        { method: 'POST' },
+      )
       const payload = (await response.json().catch(() => ({}))) as {
         ok?: boolean
         message?: string
@@ -546,7 +562,8 @@ export function McpSettingsScreen() {
                     MCP Servers
                   </h1>
                   <p className="mt-1 text-sm text-primary-600">
-                    Review configured MCP servers, draft changes locally, and
+                    Review configured MCP servers for{' '}
+                    {activeInstanceLabel}, draft changes locally, and
                     copy the YAML into
                     <code className="mx-1 rounded bg-white px-1.5 py-0.5 font-mono text-xs">
                       config.yaml
