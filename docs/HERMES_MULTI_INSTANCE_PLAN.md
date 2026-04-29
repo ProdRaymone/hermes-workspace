@@ -148,6 +148,7 @@ For Playwright browser smoke, prefer `domcontentloaded` plus visible-selector ch
 
 Start V2 only after the runtime layer feels boring and debuggable. V2 should be a design-first slice covering how these become truly separate workspaces:
 
+- V2 entry design doc: `docs/HERMES_V2_INSTANCE_SEMANTICS_DESIGN.md`
 - per-instance Knowledge config and browsing
 - per-instance Memory APIs and UI
 - per-instance Skills APIs and visibility
