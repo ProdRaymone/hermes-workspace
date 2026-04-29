@@ -4,6 +4,7 @@ import {
   advanceStickyStreamingText,
   getLastSessionStorageKey,
   getThinkingLevelStorageKey,
+  resolveGatewayModel,
 } from './chat-screen-utils'
 
 describe('advanceStickyStreamingText', () => {
@@ -71,6 +72,24 @@ describe('chat screen scoped storage keys', () => {
     )
     expect(getThinkingLevelStorageKey('abc123', 'hermes3')).toBe(
       'hermes-thinking-hermes3-abc123',
+    )
+  })
+})
+
+describe('resolveGatewayModel', () => {
+  it('does not crash while the active Hermes instance is still loading', () => {
+    expect(resolveGatewayModel('', undefined)).toBe('')
+  })
+
+  it('prefers the session status model over the active instance model', () => {
+    expect(resolveGatewayModel('status-model', { model: 'instance-model' })).toBe(
+      'status-model',
+    )
+  })
+
+  it('falls back to the active instance model', () => {
+    expect(resolveGatewayModel('', { model: 'instance-model' })).toBe(
+      'instance-model',
     )
   })
 })

@@ -21,6 +21,7 @@ import {
   advanceStickyStreamingText,
   createOptimisticMessage,
   getThinkingLevelStorageKey,
+  resolveGatewayModel,
 } from './chat-screen-utils'
 import {
   appendHistoryMessage,
@@ -1009,7 +1010,10 @@ export function ChatScreen({
     return models.map((m: any) => m.id).filter((id: string) => id)
   }, [modelsQuery.data])
 
-  const gatewayModel = currentModelQuery.data || activeInstance.model || ''
+  const gatewayModel = resolveGatewayModel(
+    currentModelQuery.data,
+    activeInstance,
+  )
   const currentModel = _localModelOverride || gatewayModel
 
   // Ref so sendMessage can always read latest thinkingLevel without being in deps

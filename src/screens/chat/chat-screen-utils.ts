@@ -61,6 +61,17 @@ export function advanceStickyStreamingText(params: {
   }
 }
 
+type InstanceModelSource = {
+  model?: string | null
+}
+
+export function resolveGatewayModel(
+  statusModel: string | null | undefined,
+  activeInstance: InstanceModelSource | null | undefined,
+): string {
+  return statusModel || activeInstance?.model || ''
+}
+
 type OptimisticMessagePayload = {
   clientId: string
   optimisticId: string
