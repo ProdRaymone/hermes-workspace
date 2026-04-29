@@ -1,7 +1,9 @@
 // Module-level local model override — set by composer when user picks a local model
 // Avoids prop threading. Reset when switching back to cloud models.
 export let _localModelOverride = ''
-export function setLocalModelOverride(model: string) { _localModelOverride = model }
+export function setLocalModelOverride(model: string) {
+  _localModelOverride = model
+}
 
 import {
   useCallback,
@@ -23,6 +25,7 @@ import {
 import {
   advanceStickyStreamingText,
   createOptimisticMessage,
+  getThinkingLevelStorageKey,
 } from './chat-screen-utils'
 import {
   appendHistoryMessage,
@@ -51,7 +54,10 @@ import { useChatHistory } from './hooks/use-chat-history'
 import { useRealtimeChatHistory } from './hooks/use-realtime-chat-history'
 import { useSmoothStreamingText } from './hooks/use-smooth-streaming-text'
 import { useStreamingMessage } from './hooks/use-streaming-message'
-import { useActiveRunCheck } from './hooks/use-active-run-check'
+import {
+  buildActiveRunUrl,
+  useActiveRunCheck,
+} from './hooks/use-active-run-check'
 import { useChatMobile } from './hooks/use-chat-mobile'
 import { useChatSessions } from './hooks/use-chat-sessions'
 import { useAutoSessionTitle } from './hooks/use-auto-session-title'
@@ -90,6 +96,7 @@ import { InspectorPanel } from '@/components/inspector/inspector-panel'
 import { useTerminalPanelStore } from '@/stores/terminal-panel-store'
 import { useModelSuggestions } from '@/hooks/use-model-suggestions'
 import { ModelSuggestionToast } from '@/components/model-suggestion-toast'
+import { useHermesInstances } from '@/hooks/use-hermes-instances'
 import { MobileSessionsPanel } from '@/components/mobile-sessions-panel'
 import { ContextAlertModal } from '@/components/usage-meter/context-alert-modal'
 import { ErrorToastContainer, showErrorToast } from '@/components/error-toast'
@@ -99,6 +106,7 @@ import { useResearchCard } from '@/hooks/use-research-card'
 // MOBILE_TAB_BAR_OFFSET removed — tab bar always hidden in chat
 import { useTapDebug } from '@/hooks/use-tap-debug'
 import { useChatMode } from '@/hooks/use-chat-mode'
+import { getInstanceScopedSessionKey } from '@/lib/hermes-instance-scope'
 // Activity store removed — not used in Hermes Workspace
 const _noopSetActivity = (_s: string) => {}
 
@@ -462,6 +470,8 @@ export function ChatScreen({
   const chatFocusMode = useWorkspaceStore((s) => s.chatFocusMode)
   const setChatFocusMode = useWorkspaceStore((s) => s.setChatFocusMode)
   const queryClient = useQueryClient()
+  const { activeInstanceId, activeInstance, instances, setActiveInstanceId } =
+    useHermesInstances()
   const [sending, setSending] = useState(false)
   const [_creatingSession, setCreatingSession] = useState(false)
   const [sessionsOpen, setSessionsOpen] = useState(false)
@@ -470,7 +480,7 @@ export function ChatScreen({
   const { headerRef, composerRef, mainRef, pinGroupMinHeight, headerHeight } =
     useChatMeasurements()
   useTapDebug(mainRef, { label: 'chat-main' })
-  const chatMode = useChatMode()
+  const chatMode = useChatMode(activeInstanceId)
   const isPortableMode = chatMode === 'portable'
   const portableChatFriendlyId = isPortableMode ? 'main' : activeFriendlyId
   // --- Issue #43 fix: lift waitingForResponse into persistent Zustand store ---
@@ -482,20 +492,24 @@ export function ChatScreen({
   const sessionKeyForWaiting = useRef<string | undefined>(undefined)
   const waitingForResponse = useMemo(() => {
     const key = sessionKeyForWaiting.current
-    if (!key) return hasPendingSend() || hasPendingGeneration()
-    return storeWaiting.has(key)
-  }, [storeWaiting])
+    if (!key) return hasPendingSend(activeInstanceId) || hasPendingGeneration()
+    return storeWaiting.has(getInstanceScopedSessionKey(key, activeInstanceId))
+  }, [activeInstanceId, storeWaiting])
 
-  const setWaitingForResponse = useCallback((waiting: boolean) => {
-    const store = useChatStore.getState()
-    const key = sessionKeyForWaiting.current
-    if (!key) return
-    if (waiting) {
-      store.setSessionWaiting(key)
-    } else {
-      store.clearSessionWaiting(key)
-    }
-  }, [])
+  const setWaitingForResponse = useCallback(
+    (waiting: boolean) => {
+      const store = useChatStore.getState()
+      const key = sessionKeyForWaiting.current
+      if (!key) return
+      const scopedKey = getInstanceScopedSessionKey(key, activeInstanceId)
+      if (waiting) {
+        store.setSessionWaiting(scopedKey)
+      } else {
+        store.clearSessionWaiting(scopedKey)
+      }
+    },
+    [activeInstanceId],
+  )
   const [liveToolActivity, setLiveToolActivity] = useState<
     Array<{ name: string; timestamp: number }>
   >([])
@@ -514,7 +528,10 @@ export function ChatScreen({
   // Per-session thinking level — stored in sessionStorage keyed by session
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(() => {
     if (typeof window === 'undefined') return 'low'
-    const key = `hermes-thinking-${activeFriendlyId || 'new'}`
+    const key = getThinkingLevelStorageKey(
+      activeFriendlyId || 'new',
+      activeInstanceId,
+    )
     const stored = window.sessionStorage.getItem(key)
     if (stored === 'off' || stored === 'low' || stored === 'adaptive')
       return stored
@@ -565,7 +582,12 @@ export function ChatScreen({
     sessionsLoading: _sessionsLoading,
     sessionsFetching: _sessionsFetching,
     refetchSessions: _refetchSessions,
-  } = useChatSessions({ activeFriendlyId, isNewChat, forcedSessionKey })
+  } = useChatSessions({
+    activeFriendlyId,
+    isNewChat,
+    forcedSessionKey,
+    instanceId: activeInstanceId,
+  })
   const {
     historyQuery,
     historyMessages,
@@ -577,6 +599,7 @@ export function ChatScreen({
   } = useChatHistory({
     activeFriendlyId: portableChatFriendlyId,
     activeSessionKey,
+    activeInstanceId,
     forcedSessionKey,
     isNewChat,
     isRedirecting,
@@ -585,6 +608,7 @@ export function ChatScreen({
     queryClient,
     historyRefetchInterval: sseConnectionState === 'connected' ? 30_000 : 5_000,
     portableMode: isPortableMode,
+    instanceId: activeInstanceId,
   })
 
   // Keep the waiting-state ref in sync with the resolved session key
@@ -594,7 +618,9 @@ export function ChatScreen({
   // If so, re-set waitingForResponse in the store so the UI shows the spinner.
   useActiveRunCheck({
     sessionKey: resolvedSessionKey ?? '',
-    enabled: !isNewChat && Boolean(resolvedSessionKey) && historyQuery.isSuccess,
+    enabled:
+      !isNewChat && Boolean(resolvedSessionKey) && historyQuery.isSuccess,
+    instanceId: activeInstanceId,
   })
 
   // Wire SSE realtime stream for instant message delivery
@@ -617,12 +643,13 @@ export function ChatScreen({
       : isNewChat
         ? 'new'
         : resolvedSessionKey ||
-        sessionKeyForHistory ||
-        activeCanonicalKey ||
-        'main',
+          sessionKeyForHistory ||
+          activeCanonicalKey ||
+          'main',
     friendlyId: portableChatFriendlyId,
     historyMessages,
     portableMode: isPortableMode,
+    instanceId: activeInstanceId,
     enabled:
       // Always enable for new chats in portable mode (no sessions API to resolve).
       // In enhanced mode, wait for session resolution before subscribing.
@@ -869,6 +896,7 @@ export function ChatScreen({
           portableChatFriendlyId,
           historySessionKey,
           optimistic,
+          activeInstanceId,
         )
       }
     })
@@ -902,11 +930,15 @@ export function ChatScreen({
     const interval = window.setInterval(async () => {
       try {
         const res = await fetch(
-          `/api/sessions/${encodeURIComponent(resolvedSessionKey)}/active-run`,
+          buildActiveRunUrl(resolvedSessionKey, activeInstanceId),
         )
         if (!res.ok) return
         const data = await res.json()
-        if (!data.ok || !data.run || !['accepted', 'active', 'handoff'].includes(data.run.status)) {
+        if (
+          !data.ok ||
+          !data.run ||
+          !['accepted', 'active', 'handoff'].includes(data.run.status)
+        ) {
           streamFinish()
           refreshHistoryRef.current()
         }
@@ -915,7 +947,13 @@ export function ChatScreen({
       }
     }, 5000)
     return () => window.clearInterval(interval)
-  }, [waitingForResponse, resolvedSessionKey, sseConnectionState, streamFinish])
+  }, [
+    activeInstanceId,
+    waitingForResponse,
+    resolvedSessionKey,
+    sseConnectionState,
+    streamFinish,
+  ])
 
   useAutoSessionTitle({
     friendlyId: activeFriendlyId,
@@ -925,13 +963,15 @@ export function ChatScreen({
     messageCount,
     enabled:
       !isNewChat && Boolean(resolvedSessionKey) && historyQuery.isSuccess,
+    instanceId: activeInstanceId,
   })
 
   // Phase 4.1: Smart Model Suggestions
   const modelsQuery = useQuery({
-    queryKey: ['models'],
+    queryKey: ['models', activeInstanceId],
     queryFn: async () => {
-      const res = await fetch('/api/models')
+      const query = new URLSearchParams({ instance: activeInstanceId })
+      const res = await fetch(`/api/models?${query.toString()}`)
       if (!res.ok) return { models: [] }
       const data = await res.json()
       return data
@@ -940,10 +980,11 @@ export function ChatScreen({
   })
 
   const currentModelQuery = useQuery({
-    queryKey: ['hermes', 'session-status-model'],
+    queryKey: ['hermes', 'session-status-model', activeInstanceId],
     queryFn: async () => {
       try {
-        const res = await fetch('/api/session-status')
+        const query = new URLSearchParams({ instance: activeInstanceId })
+        const res = await fetch(`/api/session-status?${query.toString()}`)
         if (!res.ok) return ''
         const data = await res.json()
         const payload = data.payload ?? data
@@ -968,7 +1009,7 @@ export function ChatScreen({
     return models.map((m: any) => m.id).filter((id: string) => id)
   }, [modelsQuery.data])
 
-  const gatewayModel = currentModelQuery.data || ''
+  const gatewayModel = currentModelQuery.data || activeInstance?.model || ''
   const currentModel = _localModelOverride || gatewayModel
 
   // Ref so sendMessage can always read latest thinkingLevel without being in deps
@@ -977,17 +1018,31 @@ export function ChatScreen({
     thinkingLevelRef.current = thinkingLevel
   }, [thinkingLevel])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const key = getThinkingLevelStorageKey(
+      activeFriendlyId || 'new',
+      activeInstanceId,
+    )
+    const stored = window.sessionStorage.getItem(key)
+    setThinkingLevel(
+      stored === 'off' || stored === 'low' || stored === 'adaptive'
+        ? stored
+        : 'low',
+    )
+  }, [activeFriendlyId, activeInstanceId])
+
   // Auto-upgrade thinking to adaptive for Claude 4.6 when session first loads
-  const thinkingInitializedRef = useRef(false)
   useEffect(() => {
     if (!currentModel) return
-    if (thinkingInitializedRef.current) return
-    thinkingInitializedRef.current = true
     const is46 =
       currentModel.toLowerCase().includes('4-6') ||
       currentModel.toLowerCase().includes('claude-4.6')
     if (is46) {
-      const key = `hermes-thinking-${activeFriendlyId || 'new'}`
+      const key = getThinkingLevelStorageKey(
+        activeFriendlyId || 'new',
+        activeInstanceId,
+      )
       const stored =
         typeof window !== 'undefined'
           ? window.sessionStorage.getItem(key)
@@ -997,18 +1052,21 @@ export function ChatScreen({
         setThinkingLevel('adaptive')
       }
     }
-  }, [currentModel, activeFriendlyId])
+  }, [currentModel, activeFriendlyId, activeInstanceId])
 
   // Persist thinking level changes to sessionStorage
   const handleThinkingLevelChange = useCallback(
     (level: ThinkingLevel) => {
       setThinkingLevel(level)
       if (typeof window !== 'undefined') {
-        const key = `hermes-thinking-${activeFriendlyId || 'new'}`
+        const key = getThinkingLevelStorageKey(
+          activeFriendlyId || 'new',
+          activeInstanceId,
+        )
         window.sessionStorage.setItem(key, level)
       }
     },
-    [activeFriendlyId],
+    [activeFriendlyId, activeInstanceId],
   )
 
   const { suggestion, dismiss, dismissForSession } = useModelSuggestions({
@@ -1162,10 +1220,12 @@ export function ChatScreen({
     activeRealtimeStreamingText,
     activeIsRealtimeStreaming,
   )
-  const stickyStreamingTextRef = useRef<{ runId: string | null; text: string }>({
-    runId: null,
-    text: '',
-  })
+  const stickyStreamingTextRef = useRef<{ runId: string | null; text: string }>(
+    {
+      runId: null,
+      text: '',
+    },
+  )
   stickyStreamingTextRef.current = advanceStickyStreamingText({
     isStreaming: activeIsRealtimeStreaming,
     runId: streamingRunId ?? null,
@@ -1474,8 +1534,8 @@ export function ChatScreen({
   ])
 
   const statusQuery = useQuery({
-    queryKey: ['hermes', 'status'],
-    queryFn: fetchStatus,
+    queryKey: ['hermes', 'status', activeInstanceId],
+    queryFn: () => fetchStatus(activeInstanceId),
     retry: 2,
     retryDelay: 1000,
     refetchOnWindowFocus: true,
@@ -1511,6 +1571,41 @@ export function ChatScreen({
   const handleRefreshHistory = useCallback(() => {
     void historyQuery.refetch()
   }, [historyQuery])
+
+  const handleSelectInstance = useCallback(
+    (nextInstanceId: string) => {
+      const normalized = nextInstanceId.trim() || 'default'
+      if (normalized === activeInstanceId) return
+
+      cancelStreaming()
+      resetPendingSend(activeInstanceId)
+      setPendingGeneration(false)
+      setSending(false)
+      setWaitingForResponse(false)
+      setError(null)
+      setActiveInstanceId(normalized)
+      void queryClient.invalidateQueries({ queryKey: ['hermes'] })
+      void queryClient.invalidateQueries({ queryKey: ['gateway-status'] })
+      void queryClient.invalidateQueries({ queryKey: ['chat'] })
+
+      if (!embedded) {
+        void navigate({
+          to: '/chat/$sessionKey',
+          params: { sessionKey: 'new' },
+          replace: true,
+        })
+      }
+    },
+    [
+      activeInstanceId,
+      cancelStreaming,
+      embedded,
+      navigate,
+      queryClient,
+      setActiveInstanceId,
+      setWaitingForResponse,
+    ],
+  )
 
   useEffect(() => {
     const handleRefreshRequest = () => {
@@ -1581,7 +1676,7 @@ export function ChatScreen({
   const shouldRedirectToNew =
     !isNewChat &&
     !forcedSessionKey &&
-    !isRecentSession(activeFriendlyId) &&
+    !isRecentSession(activeFriendlyId, activeInstanceId) &&
     sessionsQuery.isSuccess &&
     sessions.length > 0 &&
     !sessions.some((session) => session.friendlyId === activeFriendlyId) &&
@@ -1653,8 +1748,13 @@ export function ChatScreen({
     if (!sessionsQuery.isSuccess) return
     if (sessions.length === 0) return
     if (!shouldRedirectToNew) return
-    resetPendingSend()
-    clearHistoryMessages(queryClient, activeFriendlyId, sessionKeyForHistory)
+    resetPendingSend(activeInstanceId)
+    clearHistoryMessages(
+      queryClient,
+      activeFriendlyId,
+      sessionKeyForHistory,
+      activeInstanceId,
+    )
     const latestSession = sessions[0]?.friendlyId ?? 'new'
     navigate({
       to: '/chat/$sessionKey',
@@ -1663,6 +1763,7 @@ export function ChatScreen({
     })
   }, [
     activeFriendlyId,
+    activeInstanceId,
     historyQuery.isFetching,
     historyQuery.isSuccess,
     isNewChat,
@@ -1729,14 +1830,14 @@ export function ChatScreen({
       pendingStartRef.current = false
       return
     }
-    if (hasPendingSend() || hasPendingGeneration()) {
+    if (hasPendingSend(activeInstanceId) || hasPendingGeneration()) {
       setWaitingForResponse(true)
       return
     }
     streamStop()
     lastAssistantSignature.current = ''
     setWaitingForResponse(false)
-  }, [activeFriendlyId, isNewChat, streamStop])
+  }, [activeFriendlyId, activeInstanceId, isNewChat, streamStop])
 
   /**
    * Simplified sendMessage - fire and forget.
@@ -1792,12 +1893,14 @@ export function ChatScreen({
           friendlyId,
           sessionKey,
           optimisticMessage,
+          activeInstanceId,
         )
         updateSessionLastMessage(
           queryClient,
           sessionKey,
           friendlyId,
           optimisticMessage,
+          activeInstanceId,
         )
       }
 
@@ -1878,6 +1981,7 @@ export function ChatScreen({
           currentThinkingLevel === 'off' ? undefined : currentThinkingLevel,
         fastMode,
         model: currentModel || undefined,
+        instanceId: activeInstanceId,
         idempotencyKey: optimisticClientId || crypto.randomUUID(),
       }).catch((err: unknown) => {
         const messageText = err instanceof Error ? err.message : String(err)
@@ -1895,6 +1999,7 @@ export function ChatScreen({
       streamFinish,
       streamStart,
       currentModel,
+      activeInstanceId,
     ],
   )
 
@@ -1905,12 +2010,14 @@ export function ChatScreen({
         ? 'main'
         : forcedSessionKey || resolvedSessionKey || activeSessionKey,
       portableChatFriendlyId,
+      activeInstanceId,
     )
     if (!pending) return
     pendingStartRef.current = true
     const historyKey = chatQueryKeys.history(
       pending.friendlyId,
       pending.sessionKey,
+      activeInstanceId,
     )
     const cached = queryClient.getQueryData(historyKey)
     const cachedMessages = Array.isArray((cached as any)?.messages)
@@ -1934,6 +2041,7 @@ export function ChatScreen({
         pending.friendlyId,
         pending.sessionKey,
         pending.optimisticMessage,
+        activeInstanceId,
       )
     }
     setWaitingForResponse(true)
@@ -1949,6 +2057,7 @@ export function ChatScreen({
         : '',
     )
   }, [
+    activeInstanceId,
     activeSessionKey,
     forcedSessionKey,
     isNewChat,
@@ -1990,6 +2099,7 @@ export function ChatScreen({
           function markSending(currentMessage) {
             return { ...currentMessage, status: 'sending' }
           },
+          activeInstanceId,
         )
         updateHistoryMessageByClientIdEverywhere(
           queryClient,
@@ -2017,6 +2127,7 @@ export function ChatScreen({
     },
     [
       activeSessionKey,
+      activeInstanceId,
       forcedSessionKey,
       isPortableMode,
       portableChatFriendlyId,
@@ -2091,7 +2202,8 @@ export function ChatScreen({
     async (preferredFriendlyId?: string) => {
       setCreatingSession(true)
       try {
-        const res = await fetch('/api/sessions', {
+        const query = new URLSearchParams({ instance: activeInstanceId })
+        const res = await fetch(`/api/sessions?${query.toString()}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(
@@ -2126,14 +2238,14 @@ export function ChatScreen({
         setCreatingSession(false)
       }
     },
-    [queryClient],
+    [activeInstanceId, queryClient],
   )
 
   const upsertSessionInCache = useCallback(
     (friendlyId: string, lastMessage: ChatMessage) => {
       if (!friendlyId) return
       queryClient.setQueryData(
-        chatQueryKeys.sessions,
+        chatQueryKeys.sessionsFor(activeInstanceId),
         function upsert(existing: unknown) {
           const sessions = Array.isArray(existing)
             ? (existing as Array<SessionMeta>)
@@ -2169,7 +2281,7 @@ export function ChatScreen({
         },
       )
     },
-    [queryClient],
+    [activeInstanceId, queryClient],
   )
 
   const scrollChatToBottom = useCallback(
@@ -2198,7 +2310,12 @@ export function ChatScreen({
           resolvedSessionKey ||
           activeSessionKey ||
           activeFriendlyId
-        clearHistoryMessages(queryClient, activeFriendlyId, sessionKey)
+        clearHistoryMessages(
+          queryClient,
+          activeFriendlyId,
+          sessionKey,
+          activeInstanceId,
+        )
         toast('Chat cleared', { type: 'success' })
         return true
       }
@@ -2234,6 +2351,7 @@ export function ChatScreen({
     },
     [
       activeFriendlyId,
+      activeInstanceId,
       activeSessionKey,
       finalDisplayMessages,
       forcedSessionKey,
@@ -2290,7 +2408,13 @@ export function ChatScreen({
           trimmedBody,
           attachmentPayload,
         )
-        appendHistoryMessage(queryClient, threadId, threadId, optimisticMessage)
+        appendHistoryMessage(
+          queryClient,
+          threadId,
+          threadId,
+          optimisticMessage,
+          activeInstanceId,
+        )
         upsertSessionInCache(threadId, optimisticMessage)
         setPendingGeneration(true)
         setSending(true)
@@ -2342,6 +2466,7 @@ export function ChatScreen({
     },
     [
       activeFriendlyId,
+      activeInstanceId,
       activeSessionKey,
       createSessionForMessage,
       forcedSessionKey,
@@ -2597,6 +2722,9 @@ export function ChatScreen({
               onToggleFocusMode={handleToggleFocusMode}
               onUndo={undefined}
               onClear={undefined}
+              instances={instances}
+              activeInstanceId={activeInstanceId}
+              onSelectInstance={handleSelectInstance}
             />
           )}
 

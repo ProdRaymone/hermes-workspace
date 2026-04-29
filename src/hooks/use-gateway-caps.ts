@@ -11,11 +11,12 @@ interface GatewayStatus {
   hermesUrl: string
 }
 
-function useGatewayStatus() {
+function useGatewayStatus(instanceId = 'default') {
   return useQuery<GatewayStatus>({
-    queryKey: ['gateway-status'],
+    queryKey: ['gateway-status', instanceId],
     queryFn: async () => {
-      const res = await fetch('/api/gateway-status')
+      const query = new URLSearchParams({ instance: instanceId })
+      const res = await fetch(`/api/gateway-status?${query.toString()}`)
       if (!res.ok) throw new Error('gateway-status fetch failed')
       return res.json()
     },
@@ -24,8 +25,11 @@ function useGatewayStatus() {
   })
 }
 
-export function useIsFeatureAvailable(feature: string): boolean | null {
-  const { data, isLoading } = useGatewayStatus()
+export function useIsFeatureAvailable(
+  feature: string,
+  instanceId = 'default',
+): boolean | null {
+  const { data, isLoading } = useGatewayStatus(instanceId)
   if (isLoading || !data) return null
   return data.capabilities[feature] === true
 }

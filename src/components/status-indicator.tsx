@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
+import { buildInstanceApiPath } from '@/lib/hermes-instance-scope'
 
 type ConnectionStatus = {
   status: 'connected' | 'enhanced' | 'partial' | 'disconnected'
@@ -13,12 +14,18 @@ type ConnectionStatus = {
   chatMode: 'enhanced-hermes' | 'portable' | 'disconnected'
   capabilities: Record<string, boolean>
   hermesUrl: string
+  instance?: string
 }
 
-async function fetchConnectionStatus(): Promise<ConnectionStatus> {
-  const response = await fetch('/api/connection-status', {
+async function fetchConnectionStatus(
+  instanceId?: string,
+): Promise<ConnectionStatus> {
+  const response = await fetch(
+    buildInstanceApiPath('/api/connection-status', instanceId),
+    {
     signal: AbortSignal.timeout(5000),
-  })
+    },
+  )
   if (!response.ok) {
     return {
       status: 'disconnected',
@@ -31,6 +38,7 @@ async function fetchConnectionStatus(): Promise<ConnectionStatus> {
       chatMode: 'disconnected',
       capabilities: {},
       hermesUrl: '',
+      instance: instanceId,
     }
   }
   return response.json() as Promise<ConnectionStatus>
@@ -94,10 +102,10 @@ function buildTooltip(
  * Minimal dot-only status indicator (no text).
  * Shows connected, enhanced, partial, or disconnected backend state.
  */
-export function StatusDot() {
+export function StatusDot({ instanceId }: { instanceId?: string }) {
   const { data, isLoading } = useQuery({
-    queryKey: ['hermes', 'connection-status'],
-    queryFn: fetchConnectionStatus,
+    queryKey: ['hermes', 'connection-status', instanceId || 'default'],
+    queryFn: () => fetchConnectionStatus(instanceId),
     refetchInterval: 15_000,
     retry: false,
   })
@@ -122,13 +130,15 @@ export function StatusDot() {
 export function StatusIndicator({
   collapsed,
   inline,
+  instanceId,
 }: {
   collapsed?: boolean
   inline?: boolean
+  instanceId?: string
 }) {
   const { data, isLoading } = useQuery({
-    queryKey: ['hermes', 'connection-status'],
-    queryFn: fetchConnectionStatus,
+    queryKey: ['hermes', 'connection-status', instanceId || 'default'],
+    queryFn: () => fetchConnectionStatus(instanceId),
     refetchInterval: 15_000,
     retry: false,
   })

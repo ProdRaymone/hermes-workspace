@@ -21,8 +21,13 @@ import {
   ONBOARDING_COMPLETE_EVENT,
   ONBOARDING_KEY,
 } from '@/components/onboarding/hermes-onboarding'
+import { buildOnboardingApiPath } from '@/components/onboarding/onboarding-scope'
 import { ErrorBoundary } from '@/components/error-boundary'
-import { getRootSurfaceState } from './-root-layout-state'
+import {
+  getRootSurfaceState,
+  shouldAutoCompleteOnboarding,
+  type OnboardingConnectionStatus,
+} from './-root-layout-state'
 
 
 const APP_CSP = [
@@ -248,6 +253,7 @@ function RootLayout() {
   const [onboardingComplete, setOnboardingComplete] = useState<boolean | null>(
     null,
   )
+  const [backendSetupDetected, setBackendSetupDetected] = useState(false)
 
   useEffect(() => {
     initializeSettingsAppearance()
@@ -265,6 +271,37 @@ function RootLayout() {
     }
 
     syncOnboardingCompletion()
+
+    const autoCompleteOnboardingFromBackend = async () => {
+      try {
+        if (localStorage.getItem(ONBOARDING_KEY) === 'true') return
+
+        const response = await fetch(
+          buildOnboardingApiPath('/api/connection-status'),
+          {
+            cache: 'no-store',
+          },
+        )
+        if (!response.ok) return
+
+        const connectionStatus =
+          (await response.json()) as OnboardingConnectionStatus
+        if (!shouldAutoCompleteOnboarding(connectionStatus)) return
+
+        localStorage.setItem(ONBOARDING_KEY, 'true')
+        setBackendSetupDetected(true)
+        setOnboardingComplete(true)
+        window.dispatchEvent(
+          new CustomEvent(ONBOARDING_COMPLETE_EVENT, {
+            detail: { completed: true, source: 'backend-auto-detected' },
+          }),
+        )
+      } catch {
+        // Keep the normal onboarding flow when backend probing is unavailable.
+      }
+    }
+
+    void autoCompleteOnboardingFromBackend()
 
     const handleStorage = (event: StorageEvent) => {
       if (event.key && event.key !== ONBOARDING_KEY) return
@@ -295,7 +332,10 @@ function RootLayout() {
     }
   }, [])
 
-  const rootSurfaceState = getRootSurfaceState(onboardingComplete)
+  const rootSurfaceState = getRootSurfaceState(
+    onboardingComplete,
+    backendSetupDetected,
+  )
 
   return (
     <QueryClientProvider client={queryClient}>

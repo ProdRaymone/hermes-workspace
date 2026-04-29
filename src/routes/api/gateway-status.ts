@@ -1,13 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json } from '@tanstack/react-start'
 import { isAuthenticated } from '../../server/auth-middleware'
+import { resolveRequestHermesInstance } from '../../server/hermes-instances'
 import {
-  HERMES_API,
-  HERMES_DASHBOARD_URL,
-  ensureGatewayProbed,
-  getCapabilities,
-  getGatewayMode,
-} from '../../server/gateway-capabilities'
+  getInstanceChatMode,
+  probeInstanceCapabilities,
+} from '../../server/hermes-instance-api'
 
 export const Route = createFileRoute('/api/gateway-status')({
   server: {
@@ -17,17 +15,28 @@ export const Route = createFileRoute('/api/gateway-status')({
           return json({ error: 'Unauthorized' }, { status: 401 })
         }
 
-        const capabilities = await ensureGatewayProbed()
+        const instance = await resolveRequestHermesInstance(request)
+        const capabilities = await probeInstanceCapabilities(instance)
+        const chatMode = getInstanceChatMode(capabilities)
         return json({
           capabilities,
-          mode: getGatewayMode(),
-          hermesUrl: HERMES_API,
-          dashboardUrl: HERMES_DASHBOARD_URL,
+          mode:
+            chatMode === 'enhanced-hermes'
+              ? 'enhanced-fork'
+              : chatMode === 'portable'
+                ? 'portable'
+                : 'disconnected',
+          hermesUrl: instance.gatewayUrl,
+          dashboardUrl: '',
+          instance: instance.id,
           gateway: {
             available: capabilities.health || capabilities.chatCompletions,
-            url: HERMES_API,
+            url: instance.gatewayUrl,
           },
-          dashboard: capabilities.dashboard,
+          dashboard: {
+            available: false,
+            url: '',
+          },
         })
       },
     },

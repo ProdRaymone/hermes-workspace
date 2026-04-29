@@ -1,4 +1,8 @@
 import { useEffect, useRef } from 'react'
+import {
+  buildInstanceApiPath,
+  getInstanceScopedSessionKey,
+} from '@/lib/hermes-instance-scope'
 import { useChatStore } from '../../../stores/chat-store'
 
 type ActiveRunStatus =
@@ -25,6 +29,16 @@ const ACTIVE_STATUSES: ReadonlySet<string> = new Set([
   'handoff',
 ])
 
+export function buildActiveRunUrl(
+  sessionKey: string,
+  instanceId?: string | null,
+): string {
+  return buildInstanceApiPath(
+    `/api/sessions/${encodeURIComponent(sessionKey)}/active-run`,
+    instanceId,
+  )
+}
+
 /**
  * On mount, checks whether the server has an active run for this session.
  * If so, marks the session as waiting in the persistent Zustand store.
@@ -37,9 +51,11 @@ const ACTIVE_STATUSES: ReadonlySet<string> = new Set([
 export function useActiveRunCheck({
   sessionKey,
   enabled,
+  instanceId,
 }: {
   sessionKey: string
   enabled: boolean
+  instanceId?: string
 }): void {
   const hasCheckedRef = useRef(false)
   const sessionKeyRef = useRef(sessionKey)
@@ -54,21 +70,24 @@ export function useActiveRunCheck({
 
     async function check() {
       try {
-        const response = await fetch(
-          `/api/sessions/${encodeURIComponent(sessionKey)}/active-run`,
-          { signal: controller.signal },
-        )
+        const response = await fetch(buildActiveRunUrl(sessionKey, instanceId), {
+          signal: controller.signal,
+        })
         if (!response.ok) return
 
         const data = (await response.json()) as ActiveRunResponse
         if (!data.ok) return
 
         const store = useChatStore.getState()
+        const scopedSessionKey = getInstanceScopedSessionKey(
+          sessionKey,
+          instanceId,
+        )
         if (data.run && ACTIVE_STATUSES.has(data.run.status)) {
-          store.setSessionWaiting(sessionKey, data.run.runId)
-        } else if (store.isSessionWaiting(sessionKey)) {
+          store.setSessionWaiting(scopedSessionKey, data.run.runId)
+        } else if (store.isSessionWaiting(scopedSessionKey)) {
           // Server says run is done but we still have stale waiting state
-          store.clearSessionWaiting(sessionKey)
+          store.clearSessionWaiting(scopedSessionKey)
         }
       } catch {
         // Network error or abort — ignore
@@ -80,10 +99,10 @@ export function useActiveRunCheck({
     return () => {
       controller.abort()
     }
-  }, [sessionKey, enabled])
+  }, [sessionKey, enabled, instanceId])
 
-  // Reset check flag when session changes
+  // Reset check flag when session or selected instance changes
   useEffect(() => {
     hasCheckedRef.current = false
-  }, [sessionKey])
+  }, [sessionKey, instanceId])
 }

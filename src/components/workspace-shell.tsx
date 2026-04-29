@@ -30,6 +30,7 @@ import { LoginScreen } from '@/components/auth/login-screen'
 import { MobileTabBar } from '@/components/mobile-tab-bar'
 import { MobileHamburgerMenu } from '@/components/mobile-hamburger-menu'
 import { MobilePageHeader } from '@/components/mobile-page-header'
+import { useHermesInstances } from '@/hooks/use-hermes-instances'
 
 import { MobileTerminalInput } from '@/components/terminal/mobile-terminal-input'
 import { HermesReconnectBanner } from '@/components/hermes-reconnect-banner'
@@ -49,8 +50,11 @@ type SessionsListResponse = Array<SessionMeta>
 export const DESKTOP_SIDEBAR_BACKDROP_CLASS =
   'fixed left-0 bottom-0 top-[var(--titlebar-h,0px)] w-[300px] z-10 bg-black/10 backdrop-blur-[1px]'
 
-async function fetchSessions(): Promise<SessionsListResponse> {
-  const res = await fetch('/api/sessions')
+async function fetchSessions(
+  instanceId = 'default',
+): Promise<SessionsListResponse> {
+  const query = new URLSearchParams({ instance: instanceId })
+  const res = await fetch(`/api/sessions?${query.toString()}`)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   const data = await res.json()
   return Array.isArray(data?.sessions)
@@ -86,6 +90,7 @@ export function WorkspaceShell({ children }: WorkspaceShellProps) {
   useMobileKeyboard()
 
   const [creatingSession, setCreatingSession] = useState(false)
+  const { activeInstanceId } = useHermesInstances()
   const [isMobile, setIsMobile] = useState(() => {
     if (typeof window === 'undefined') return false
     return window.matchMedia('(max-width: 767px)').matches
@@ -154,8 +159,8 @@ export function WorkspaceShell({ children }: WorkspaceShellProps) {
 
   // Sessions query — shared across sidebar and chat
   const sessionsQuery = useQuery({
-    queryKey: chatQueryKeys.sessions,
-    queryFn: fetchSessions,
+    queryKey: chatQueryKeys.sessionsFor(activeInstanceId),
+    queryFn: () => fetchSessions(activeInstanceId),
     refetchInterval: 15_000,
     staleTime: 10_000,
   })
@@ -268,7 +273,10 @@ export function WorkspaceShell({ children }: WorkspaceShellProps) {
         className="relative overflow-hidden theme-bg theme-text"
         style={shellStyle}
       >
-        <HermesReconnectBanner enabled={authState.checked} />
+        <HermesReconnectBanner
+          enabled={authState.checked}
+          instanceId={activeInstanceId}
+        />
         {/* Electron: native-style title bar (absolute over the padding) */}
         {isElectron && (
           <div
@@ -318,6 +326,7 @@ export function WorkspaceShell({ children }: WorkspaceShellProps) {
                 sessionsFetching={sessionsFetching}
                 sessionsError={sessionsError}
                 onRetrySessions={refetchSessions}
+                instanceId={activeInstanceId}
               />
             </div>
           )}
@@ -402,7 +411,10 @@ export function WorkspaceShell({ children }: WorkspaceShellProps) {
         ) : null}
 
         {!authState.checked ? (
-          <ConnectionStartupScreen onConnected={handleStartupConnected} />
+          <ConnectionStartupScreen
+            onConnected={handleStartupConnected}
+            instanceId={activeInstanceId}
+          />
         ) : null}
       </div>
 

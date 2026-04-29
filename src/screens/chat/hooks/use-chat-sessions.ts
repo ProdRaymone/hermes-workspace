@@ -38,19 +38,21 @@ type UseChatSessionsInput = {
   activeFriendlyId: string
   isNewChat: boolean
   forcedSessionKey?: string
+  instanceId?: string
 }
 
 export function useChatSessions({
   activeFriendlyId,
   isNewChat,
   forcedSessionKey,
+  instanceId = 'default',
 }: UseChatSessionsInput) {
   const sessionsQuery = useQuery({
-    queryKey: chatQueryKeys.sessions,
-    queryFn: fetchSessions,
+    queryKey: chatQueryKeys.sessionsFor(instanceId),
+    queryFn: () => fetchSessions(instanceId),
     refetchInterval: 5000,
   })
-  const storedTitles = useSessionTitles()
+  const storedTitles = useSessionTitles(instanceId)
 
   const sessions = useMemo(() => {
     const rawSessions = sessionsQuery.data ?? []
@@ -67,9 +69,9 @@ export function useChatSessions({
   const activeExists = useMemo(() => {
     if (isNewChat) return true
     if (forcedSessionKey) return true
-    if (isRecentSession(activeFriendlyId)) return true
+    if (isRecentSession(activeFriendlyId, instanceId)) return true
     return sessions.some((session) => session.friendlyId === activeFriendlyId)
-  }, [activeFriendlyId, forcedSessionKey, isNewChat, sessions])
+  }, [activeFriendlyId, forcedSessionKey, instanceId, isNewChat, sessions])
   const activeSessionKey = activeSession?.key ?? ''
   const activeTitle = useMemo(() => {
     if (activeSession) {

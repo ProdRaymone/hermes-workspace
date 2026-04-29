@@ -7,12 +7,12 @@ import path from 'node:path'
 import os from 'node:os'
 import { createFileRoute } from '@tanstack/react-router'
 import YAML from 'yaml'
-import {
-  HERMES_API,
-  ensureGatewayProbed,
-  getChatMode,
-} from '../../server/gateway-capabilities'
 import { isAuthenticated } from '../../server/auth-middleware'
+import { resolveRequestHermesInstance } from '../../server/hermes-instances'
+import {
+  getInstanceChatMode,
+  probeInstanceCapabilities,
+} from '../../server/hermes-instance-api'
 
 const CONFIG_PATH = path.join(os.homedir(), '.hermes', 'config.yaml')
 
@@ -43,17 +43,20 @@ type ConnectionStatus = {
   chatMode: 'enhanced-hermes' | 'portable' | 'disconnected'
   capabilities: Record<string, boolean>
   hermesUrl: string
+  instance: string
 }
 
 export const Route = createFileRoute('/api/connection-status')({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const authResult = isAuthenticated(request)
-        if (authResult !== true) return authResult as unknown as Response
+        if (!isAuthenticated(request)) {
+          return Response.json({ error: 'Unauthorized' }, { status: 401 })
+        }
 
-        const caps = await ensureGatewayProbed()
-        const activeModel = readActiveModel()
+        const instance = await resolveRequestHermesInstance(request)
+        const caps = await probeInstanceCapabilities(instance)
+        const activeModel = instance.model || readActiveModel()
         const modelConfigured = Boolean(activeModel)
 
         const chatReady = caps.chatCompletions
@@ -107,7 +110,7 @@ export const Route = createFileRoute('/api/connection-status')({
           chatReady,
           modelConfigured,
           activeModel,
-          chatMode: getChatMode(),
+          chatMode: getInstanceChatMode(caps),
           capabilities: {
             health: caps.health,
             chatCompletions: caps.chatCompletions,
@@ -118,9 +121,10 @@ export const Route = createFileRoute('/api/connection-status')({
             memory: caps.memory,
             config: caps.config,
             jobs: caps.jobs,
-            dashboard: caps.dashboard.available,
+            dashboard: false,
           },
-          hermesUrl: HERMES_API,
+          hermesUrl: instance.gatewayUrl,
+          instance: instance.id,
         }
 
         return Response.json(body)

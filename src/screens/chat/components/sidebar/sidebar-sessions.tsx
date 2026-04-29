@@ -30,6 +30,7 @@ type SidebarSessionsProps = {
   fetching: boolean
   error: string | null
   onRetry: () => void
+  instanceId?: string
 }
 
 export const SidebarSessions = memo(function SidebarSessions({
@@ -43,8 +44,10 @@ export const SidebarSessions = memo(function SidebarSessions({
   fetching,
   error,
   onRetry,
+  instanceId = 'default',
 }: SidebarSessionsProps) {
-  const { pinnedSessionKeys, togglePinnedSession } = usePinnedSessions()
+  const { pinnedSessionKeys, togglePinnedSession } =
+    usePinnedSessions(instanceId)
 
   const [pinnedSessions, unpinnedSessions] = useMemo(() => {
     const pinnedKeys = new Set(pinnedSessionKeys)
@@ -61,7 +64,7 @@ export const SidebarSessions = memo(function SidebarSessions({
   }, [pinnedSessionKeys, sessions])
 
   function handleTogglePin(session: SessionMeta) {
-    togglePinnedSession(session.key)
+    togglePinnedSession(session.key, instanceId)
   }
 
   return (
@@ -94,6 +97,7 @@ export const SidebarSessions = memo(function SidebarSessions({
               onTogglePin={handleTogglePin}
               onRename={onRename}
               onDelete={onDelete}
+              instanceId={instanceId}
             />
           ))}
         </div>
@@ -139,6 +143,7 @@ export const SidebarSessions = memo(function SidebarSessions({
                       onTogglePin={handleTogglePin}
                       onRename={onRename}
                       onDelete={onDelete}
+                      instanceId={instanceId}
                     />
                   ))}
                 </>
@@ -178,6 +183,7 @@ function areSidebarSessionsEqual(
   if (prev.fetching !== next.fetching) return false
   if (prev.error !== next.error) return false
   if (prev.onRetry !== next.onRetry) return false
+  if (prev.instanceId !== next.instanceId) return false
   if (prev.sessions === next.sessions) return true
   if (prev.sessions.length !== next.sessions.length) return false
   for (let i = 0; i < prev.sessions.length; i += 1) {

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { advanceStickyStreamingText } from './chat-screen-utils'
+import {
+  advanceStickyStreamingText,
+  getLastSessionStorageKey,
+  getThinkingLevelStorageKey,
+} from './chat-screen-utils'
 
 describe('advanceStickyStreamingText', () => {
   it('preserves the last non-empty streaming text when a tool phase temporarily reports empty text', () => {
@@ -48,5 +52,25 @@ describe('advanceStickyStreamingText', () => {
     })
 
     expect(next).toEqual({ runId: null, text: '' })
+  })
+})
+
+describe('chat screen scoped storage keys', () => {
+  it('keeps default last-session and thinking state on legacy keys', () => {
+    expect(getLastSessionStorageKey('default')).toBe('hermes-last-session')
+    expect(getLastSessionStorageKey('')).toBe('hermes-last-session')
+    expect(getThinkingLevelStorageKey('abc123', 'default')).toBe(
+      'hermes-thinking-abc123',
+    )
+    expect(getThinkingLevelStorageKey('', '')).toBe('hermes-thinking-new')
+  })
+
+  it('scopes non-default last-session and thinking state by Hermes instance', () => {
+    expect(getLastSessionStorageKey('hermes2')).toBe(
+      'hermes-last-session-hermes2',
+    )
+    expect(getThinkingLevelStorageKey('abc123', 'hermes3')).toBe(
+      'hermes-thinking-hermes3-abc123',
+    )
   })
 })

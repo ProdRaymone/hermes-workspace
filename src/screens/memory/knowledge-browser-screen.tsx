@@ -13,6 +13,7 @@ import {
 } from '@hugeicons/core-free-icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { HermesInstanceScopeBanner } from '@/components/hermes-instance-scope-banner'
 import { Markdown } from '@/components/prompt-kit/markdown'
 import {
   DialogContent,
@@ -21,6 +22,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import { useHermesInstances } from '@/hooks/use-hermes-instances'
 import { cn } from '@/lib/utils'
 
 type WikiPageMeta = {
@@ -286,6 +288,7 @@ export function KnowledgeBrowserScreen() {
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState<string | null>(null)
   const queryClient = useQueryClient()
+  const { activeInstance } = useHermesInstances()
 
   useEffect(() => {
     if (!settingsOpen) return
@@ -730,6 +733,13 @@ export function KnowledgeBrowserScreen() {
             </DialogContent>
           </DialogRoot>
         </div>
+        <HermesInstanceScopeBanner
+          className="mt-3"
+          instance={activeInstance}
+          scopeKind="workspace-shared"
+          title="Knowledge scope"
+          detail="Knowledge source is configured once for the Workspace in V1; this banner shows the selected Hermes agent so stopped profiles are not mistaken for live scoped data."
+        />
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 md:grid-cols-[320px_minmax(0,1fr)] md:p-4">
