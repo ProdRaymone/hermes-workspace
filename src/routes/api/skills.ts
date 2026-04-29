@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json } from '@tanstack/react-start'
 import { isAuthenticated } from '../../server/auth-middleware'
+import { resolveRequestHermesInstance } from '../../server/hermes-instances'
 import {
   BEARER_TOKEN,
   HERMES_API,
@@ -10,6 +11,15 @@ import {
   getCapabilities,
 } from '../../server/gateway-capabilities'
 import { requireJsonContentType } from '../../server/rate-limit'
+import {
+  SelectedGatewayRequestError,
+  buildSkillsScopeForInstance,
+  buildSkillsScopePayload,
+  fetchSkillsFromSelectedInstance,
+  isLegacyDefaultSkillsScope,
+  postSkillActionToSelectedInstance,
+  statusForSelectedSkillsGatewayError,
+} from '../../server/skills-gateway'
 import { createCapabilityUnavailablePayload } from '@/lib/feature-gates'
 
 type SkillsTab = 'installed' | 'marketplace' | 'featured'
@@ -74,6 +84,21 @@ const FEATURED_SKILLS: Array<{ id: string; group: string }> = [
   { id: 'gillberto1/moltwallet', group: 'Productivity' },
   { id: 'veeramanikandanr48/backtest-expert', group: 'Productivity' },
 ]
+
+function selectedGatewayUnavailableStatus(
+  scope: ReturnType<typeof buildSkillsScopeForInstance>,
+  error: unknown,
+): number {
+  if (isLegacyDefaultSkillsScope(scope)) return 500
+  const selectedGatewayStatus = statusForSelectedSkillsGatewayError(error)
+  if (selectedGatewayStatus !== 500) return selectedGatewayStatus
+  const message = error instanceof Error ? error.message : String(error)
+  return /failed|fetch|ECONNREFUSED|timed out|terminated|not found|404/i.test(
+    message,
+  )
+    ? 503
+    : 500
+}
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -187,20 +212,31 @@ function normalizeSkill(value: unknown): SkillSummary | null {
   }
 }
 
-async function fetchHermesSkills(): Promise<Array<SkillSummary>> {
-  const capabilities = getCapabilities()
-  const headers: Record<string, string> = {}
-  if (BEARER_TOKEN) headers['Authorization'] = `Bearer ${BEARER_TOKEN}`
+async function fetchHermesSkills(
+  scope: ReturnType<typeof buildSkillsScopeForInstance>,
+): Promise<Array<SkillSummary>> {
+  let payload: unknown
 
-  const response = capabilities.dashboard.available
-    ? await dashboardFetch('/api/skills')
-    : await fetch(`${HERMES_API}/api/skills`, { headers })
-  if (!response.ok) {
-    const body = await response.text().catch(() => '')
-    throw new Error(body || `Hermes skills request failed (${response.status})`)
+  if (!isLegacyDefaultSkillsScope(scope)) {
+    payload = await fetchSkillsFromSelectedInstance(scope)
+  } else {
+    const capabilities = getCapabilities()
+    const headers: Record<string, string> = {}
+    if (BEARER_TOKEN) headers['Authorization'] = `Bearer ${BEARER_TOKEN}`
+
+    const response = capabilities.dashboard.available
+      ? await dashboardFetch('/api/skills')
+      : await fetch(`${HERMES_API}/api/skills`, { headers })
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(
+        body || `Hermes skills request failed (${response.status})`,
+      )
+    }
+
+    payload = (await response.json()) as unknown
   }
 
-  const payload = (await response.json()) as unknown
   const items = Array.isArray(payload)
     ? payload
     : Array.isArray(asRecord(payload).items)
@@ -249,16 +285,21 @@ export const Route = createFileRoute('/api/skills')({
         if (!isAuthenticated(request)) {
           return json({ ok: false, error: 'Unauthorized' }, { status: 401 })
         }
-        const capabilities = await ensureGatewayProbed()
-        if (!capabilities.skills) {
-          return json({
-            ...createCapabilityUnavailablePayload('skills'),
-            items: [],
-            skills: [],
-            total: 0,
-            page: 1,
-            categories: KNOWN_CATEGORIES,
-          })
+        const instance = await resolveRequestHermesInstance(request)
+        const scope = buildSkillsScopeForInstance(instance)
+        if (isLegacyDefaultSkillsScope(scope)) {
+          const capabilities = await ensureGatewayProbed()
+          if (!capabilities.skills) {
+            return json({
+              ...createCapabilityUnavailablePayload('skills'),
+              items: [],
+              skills: [],
+              total: 0,
+              page: 1,
+              categories: KNOWN_CATEGORIES,
+              scope: buildSkillsScopePayload(scope),
+            })
+          }
         }
 
         try {
@@ -283,7 +324,7 @@ export const Route = createFileRoute('/api/skills')({
             Math.max(1, Number(url.searchParams.get('limit') || '30')),
           )
 
-          const sourceItems = await fetchHermesSkills()
+          const sourceItems = await fetchHermesSkills(scope)
           const installedLookup = new Set(
             sourceItems
               .filter((skill) => skill.installed)
@@ -327,11 +368,14 @@ export const Route = createFileRoute('/api/skills')({
             total,
             page,
             categories: KNOWN_CATEGORIES,
+            scope: buildSkillsScopePayload(scope),
           })
         } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          const status = selectedGatewayUnavailableStatus(scope, err)
           return json(
-            { error: err instanceof Error ? err.message : String(err) },
-            { status: 500 },
+            { error: message, scope: buildSkillsScopePayload(scope) },
+            { status },
           )
         }
       },
@@ -339,17 +383,8 @@ export const Route = createFileRoute('/api/skills')({
         if (!isAuthenticated(request)) {
           return json({ ok: false, error: 'Unauthorized' }, { status: 401 })
         }
-        const capabilities = await ensureGatewayProbed()
-        if (!capabilities.skills) {
-          return json(
-            {
-              ...createCapabilityUnavailablePayload('skills', {
-                error: `Gateway does not support /api/skills. ${HERMES_UPGRADE_INSTRUCTIONS}`,
-              }),
-            },
-            { status: 503 },
-          )
-        }
+        const instance = await resolveRequestHermesInstance(request)
+        const scope = buildSkillsScopeForInstance(instance)
         const csrfCheck = requireJsonContentType(request)
         if (csrfCheck) return csrfCheck
 
@@ -385,6 +420,29 @@ export const Route = createFileRoute('/api/skills')({
             }
           }
 
+          if (!isLegacyDefaultSkillsScope(scope)) {
+            const result = await postSkillActionToSelectedInstance(
+              scope,
+              endpoint,
+              payload,
+              { timeoutMs: action === 'install' ? 120_000 : 30_000 },
+            )
+            return json(result, { status: 200 })
+          }
+
+          const capabilities = await ensureGatewayProbed()
+          if (!capabilities.skills) {
+            return json(
+              {
+                ...createCapabilityUnavailablePayload('skills', {
+                  error: `Gateway does not support /api/skills. ${HERMES_UPGRADE_INSTRUCTIONS}`,
+                }),
+                scope: buildSkillsScopePayload(scope),
+              },
+              { status: 503 },
+            )
+          }
+
           if (capabilities.dashboard.available) {
             if (action !== 'toggle') {
               return json(
@@ -392,6 +450,7 @@ export const Route = createFileRoute('/api/skills')({
                   ok: false,
                   error:
                     'Skill install/uninstall is only available on the legacy enhanced fork right now. Zero-fork mode supports listing and toggling installed skills.',
+                  scope: buildSkillsScopePayload(scope),
                 },
                 { status: 501 },
               )
@@ -405,7 +464,10 @@ export const Route = createFileRoute('/api/skills')({
             })
 
             const result = await response.json()
-            return json(result, { status: response.status })
+            return json(
+              { ...asRecord(result), scope: buildSkillsScopePayload(scope) },
+              { status: response.status },
+            )
           }
 
           const headers: Record<string, string> = {
@@ -421,14 +483,18 @@ export const Route = createFileRoute('/api/skills')({
           })
 
           const result = await response.json()
-          return json(result, { status: response.status })
+          return json(
+            { ...asRecord(result), scope: buildSkillsScopePayload(scope) },
+            { status: response.status },
+          )
         } catch (err) {
           return json(
             {
               ok: false,
               error: err instanceof Error ? err.message : String(err),
+              scope: buildSkillsScopePayload(scope),
             },
-            { status: 500 },
+            { status: selectedGatewayUnavailableStatus(scope, err) },
           )
         }
       },

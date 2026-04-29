@@ -13,9 +13,14 @@ import {
   PencilEdit02Icon,
 } from '@hugeicons/core-free-icons'
 import { AnimatePresence, motion } from 'motion/react'
+import {
+  buildChatPanelSessionsPath,
+  buildChatPanelSessionsQueryKey,
+} from './chat-panel-scope'
 import type { SessionMeta } from '@/screens/chat/types'
 import { ChatScreen } from '@/screens/chat/chat-screen'
-import { chatQueryKeys, moveHistoryMessages } from '@/screens/chat/chat-queries'
+import { moveHistoryMessages } from '@/screens/chat/chat-queries'
+import { useHermesInstances } from '@/hooks/use-hermes-instances'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { Button } from '@/components/ui/button'
 import {
@@ -34,6 +39,7 @@ export function ChatPanel() {
   )
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { activeInstanceId } = useHermesInstances()
 
   const [forcedSession, setForcedSession] = useState<{
     friendlyId: string
@@ -49,9 +55,9 @@ export function ChatPanel() {
 
   // Session list for the dropdown
   const sessionsQuery = useQuery({
-    queryKey: chatQueryKeys.sessions,
+    queryKey: buildChatPanelSessionsQueryKey(activeInstanceId),
     queryFn: async () => {
-      const res = await fetch('/api/sessions')
+      const res = await fetch(buildChatPanelSessionsPath(activeInstanceId))
       if (!res.ok) return []
       const data = await res.json()
       return Array.isArray(data?.sessions)
@@ -85,6 +91,7 @@ export function ChatPanel() {
         'new',
         payload.friendlyId,
         payload.sessionKey,
+        activeInstanceId,
       )
       setForcedSession({
         friendlyId: payload.friendlyId,
@@ -92,7 +99,7 @@ export function ChatPanel() {
       })
       setChatPanelSessionKey(payload.friendlyId)
     },
-    [queryClient, setChatPanelSessionKey],
+    [activeInstanceId, queryClient, setChatPanelSessionKey],
   )
 
   const handleExpand = useCallback(() => {

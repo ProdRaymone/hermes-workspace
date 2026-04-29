@@ -1,11 +1,15 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { json } from '@tanstack/react-start'
 import { isAuthenticated } from '../../../server/auth-middleware'
+import { resolveRequestHermesInstance } from '../../../server/hermes-instances'
 import {
-  readKnowledgeBaseConfig,
-  type KnowledgeBaseConfig,
-} from '../../../server/knowledge-config'
-import { syncKnowledgeSource } from '../../../server/knowledge-browser'
+  buildKnowledgeScopeForInstance,
+  buildKnowledgeScopePayload,
+  readKnowledgeBaseConfigForScope,
+  syncKnowledgeSourceForScope,
+  writeKnowledgeBaseConfigForScope,
+} from '../../../server/knowledge-browser'
+import type { KnowledgeBaseConfig } from '../../../server/knowledge-config'
 
 export const Route = createFileRoute('/api/knowledge/sync')({
   server: {
@@ -14,9 +18,11 @@ export const Route = createFileRoute('/api/knowledge/sync')({
         if (!isAuthenticated(request)) {
           return json({ error: 'Unauthorized' }, { status: 401 })
         }
+        const instance = await resolveRequestHermesInstance(request)
+        const scope = buildKnowledgeScopeForInstance(instance)
 
         // Optional: allow body to override source temporarily for one-shot use
-        let config: KnowledgeBaseConfig | null = null
+        let config: Partial<KnowledgeBaseConfig> | null = null
         try {
           const text = await request.text()
           if (text) {
@@ -26,25 +32,28 @@ export const Route = createFileRoute('/api/knowledge/sync')({
           // ignore parse errors, use stored config
         }
 
-        if (config) {
-          const { writeKnowledgeBaseConfig } = await import(
-            '../../../server/knowledge-config'
-          )
-          writeKnowledgeBaseConfig(config)
-        }
-
         try {
-          const result = await syncKnowledgeSource()
-          return json(result)
+          if (config) {
+            const current = await readKnowledgeBaseConfigForScope(scope)
+            await writeKnowledgeBaseConfigForScope(scope, {
+              source: config.source ?? current.source,
+            })
+          }
+
+          const result = await syncKnowledgeSourceForScope(scope)
+          return json({ ...result, scope: buildKnowledgeScopePayload(scope) })
         } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : 'Failed to sync knowledge source'
+          const status = /unavailable/i.test(message) ? 503 : 500
           return json(
             {
-              error:
-                error instanceof Error
-                  ? error.message
-                  : 'Failed to sync knowledge source',
+              error: message,
+              scope: buildKnowledgeScopePayload(scope),
             },
-            { status: 500 },
+            { status },
           )
         }
       },
@@ -52,8 +61,28 @@ export const Route = createFileRoute('/api/knowledge/sync')({
         if (!isAuthenticated(request)) {
           return json({ error: 'Unauthorized' }, { status: 401 })
         }
-        const config = readKnowledgeBaseConfig()
-        return json({ source: config.source })
+        const instance = await resolveRequestHermesInstance(request)
+        const scope = buildKnowledgeScopeForInstance(instance)
+        try {
+          const config = await readKnowledgeBaseConfigForScope(scope)
+          return json({
+            source: config.source,
+            scope: buildKnowledgeScopePayload(scope),
+          })
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : 'Failed to read knowledge source'
+          const status = /unavailable/i.test(message) ? 503 : 500
+          return json(
+            {
+              error: message,
+              scope: buildKnowledgeScopePayload(scope),
+            },
+            { status },
+          )
+        }
       },
     },
   },

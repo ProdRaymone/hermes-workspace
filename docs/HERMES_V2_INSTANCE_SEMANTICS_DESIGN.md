@@ -27,12 +27,11 @@ This design is intentionally design-first. It does not add Stop or Restart contr
 
 The following surfaces are still singleton or default-oriented:
 
-- `/api/hermes-config` reads and writes `C:\Users\<user>\.hermes\config.yaml` and `.env` through Windows Node.
-- `/api/memory/*` reads and writes `$HERMES_HOME` or `os.homedir()/.hermes`, not the selected WSL profile.
-- `/api/knowledge/*` reads `~/.hermes/knowledge-config.json`, `KNOWLEDGE_DIR`, or `~/.hermes/knowledge`.
-- `/api/skills*` uses `gateway-capabilities` singletons and global `HERMES_API`, so it is still pinned to the configured default gateway.
 - `/api/mcp/*` reads gateway config through global `HERMES_API`.
+- `/api/config-get` and `/api/config-patch` still need selected-profile semantics where they overlap Hermes config editing.
 - `profiles-browser.ts` is a Windows-local profile browser and is not the source of truth for WSL Hermes1/2/3.
+
+Resolved V2 slices as of 2026-04-29: `/api/memory/*`, `/api/knowledge/*`, `/api/skills*`, and `/api/hermes-config`.
 
 ## Scope Model
 
@@ -140,6 +139,8 @@ Routes:
 
 The UI should change the V1 banner from `Workspace-shared` to `Instance-scoped` only after these routes actually use the selected profile.
 
+Implementation note, 2026-04-29: the first Knowledge slice is now implemented. `/api/knowledge/*` resolves the selected instance, Hermes1/default keeps legacy local `~/.hermes` semantics, and non-default WSL profiles read/write `knowledge-config.json`, `knowledge/`, and GitHub sync cache under the selected profile path.
+
 ### Skills
 
 Skills should prefer the selected gateway when it is running and supports `/api/skills`.
@@ -160,6 +161,8 @@ Rules:
 - If the selected gateway is stopped, gateway-backed mutations return a structured unavailable payload; do not fall back to Hermes1.
 - Direct Skills page and global search can unhide non-default skills only after `GET /api/skills?instance=...` is scoped.
 
+Implementation note, 2026-04-29: the first Skills slice is now implemented. `/api/skills`, `POST /api/skills`, and the install/toggle/uninstall helper routes resolve `?instance=` and send non-default requests to the selected Hermes gateway. The direct Skills page, Dashboard skills widget, global search skills data, and Inspector skills tab now pass the active instance id instead of hiding or reading the default inventory.
+
 ### Hermes Config And Provider Settings
 
 `/api/hermes-config` should become instance-aware in stages:
@@ -178,6 +181,8 @@ Safety rules:
 - Validate provider/model fields structurally.
 - Saving config does not restart any Hermes gateway; the UI should say that restart/reload is separate future work.
 
+Implementation note, 2026-04-29: the first Hermes config slice is now implemented. `/api/hermes-config` resolves `?instance=`, default/Hermes1 keeps legacy local Windows `~/.hermes/config.yaml` and `.env`, and non-default WSL profiles read/write `<profilePath>/config.yaml` plus `<profilePath>/.env` through the redacting profile file adapter. Provider/settings UI calls now include the active instance id. Backup-before-write and broader config helper scoping remain future work.
+
 ### MCP Helpers
 
 MCP server list should read selected instance config:
@@ -189,6 +194,8 @@ MCP reload is gateway-backed:
 
 - `POST /api/mcp/reload?instance=hermes2` calls selected gateway reload endpoints.
 - If stopped, return `unavailable`, not Hermes1 fallback.
+
+Implementation note, 2026-04-29: the first MCP/config helper slice is now implemented. `/api/mcp/servers` resolves `?instance=`, prefers the selected gateway `/api/config`, and falls back to the selected WSL profile `config.yaml` for stopped non-default instances. `/api/mcp/reload` is selected-gateway only and returns unavailable instead of falling back to Hermes1. `/api/config-get` and `/api/config-patch` now use the same selected Hermes config scope as `/api/hermes-config`, and the MCP/settings provider UI passes `activeInstanceId`.
 
 ### Profiles
 
@@ -245,13 +252,14 @@ Every error payload should include redacted `scope` metadata and avoid command s
    - Done: make `/api/memory/*` instance-aware.
    - Done: update Memory screen query keys and banner.
 3. Knowledge:
-   - Make Knowledge config/browser/sync instance-aware.
-   - Update Knowledge screen query keys and banner.
+   - Done: make Knowledge config/browser/sync instance-aware.
+   - Done: update Knowledge screen query keys and banner.
 4. Skills:
-   - Route `/api/skills*` through selected instance gateway.
-   - Unhide non-default Skills only when scoped GET is implemented.
+   - Done: route `/api/skills*` through selected instance gateway where the route is gateway-backed.
+   - Done: unhide non-default Skills when the active instance reports skills support.
 5. Config and MCP:
-   - Make `/api/hermes-config` and `/api/mcp/*` instance-aware.
+   - Done: make `/api/hermes-config` instance-aware and update the main settings/provider callers.
+   - Done: make `/api/mcp/*`, `/api/config-get`, and `/api/config-patch` instance-aware.
    - Keep writes guarded and redacted.
 6. Final smoke:
    - Verify default/Hermes2/Hermes3 across Memory, Knowledge, Skills, config read, MCP read, and chat.

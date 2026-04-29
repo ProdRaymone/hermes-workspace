@@ -20,6 +20,8 @@ import { Markdown } from '@/components/prompt-kit/markdown'
 import { cn } from '@/lib/utils'
 import { writeTextToClipboard } from '@/lib/clipboard'
 import { toast } from '@/components/ui/toast'
+import { useHermesInstances } from '@/hooks/use-hermes-instances'
+import { buildInstanceApiPath } from '@/lib/hermes-instance-scope'
 
 type SkillsTab = 'installed' | 'marketplace' | 'featured'
 type SkillsSort = 'name' | 'category'
@@ -128,6 +130,7 @@ function resolveSkillSearchTier(
 
 export function SkillsScreen() {
   const queryClient = useQueryClient()
+  const { activeInstanceId } = useHermesInstances()
   const [tab, setTab] = useState<SkillsTab>('installed')
   const [searchInput, setSearchInput] = useState('')
   const [debouncedMarketplaceSearch, setDebouncedMarketplaceSearch] =
@@ -151,8 +154,22 @@ export function SkillsScreen() {
     }
   }, [searchInput, tab])
 
+  useEffect(() => {
+    setPage(1)
+    setSelectedSkill(null)
+    setActionError(null)
+  }, [activeInstanceId])
+
   const skillsQuery = useQuery({
-    queryKey: ['skills-browser', tab, searchInput, category, page, sort],
+    queryKey: [
+      'skills-browser',
+      activeInstanceId,
+      tab,
+      searchInput,
+      category,
+      page,
+      sort,
+    ],
     queryFn: async function fetchSkills(): Promise<SkillsApiResponse> {
       const params = new URLSearchParams()
       params.set('tab', tab)
@@ -162,7 +179,12 @@ export function SkillsScreen() {
       params.set('limit', String(PAGE_LIMIT))
       params.set('sort', sort)
 
-      const response = await fetch(`/api/skills?${params.toString()}`)
+      const response = await fetch(
+        buildInstanceApiPath(
+          `/api/skills?${params.toString()}`,
+          activeInstanceId,
+        ),
+      )
       const payload = (await response.json()) as SkillsApiResponse & {
         error?: string
       }
@@ -174,7 +196,11 @@ export function SkillsScreen() {
   })
 
   const hubQuery = useQuery({
-    queryKey: ['skills-hub-search', debouncedMarketplaceSearch],
+    queryKey: [
+      'skills-hub-search',
+      activeInstanceId,
+      debouncedMarketplaceSearch,
+    ],
     enabled: tab === 'marketplace',
     queryFn: async function fetchHubResults(): Promise<HubSearchResponse> {
       const params = new URLSearchParams()
@@ -183,7 +209,10 @@ export function SkillsScreen() {
       params.set('limit', '20')
 
       const response = await fetch(
-        `/api/skills/hub-search?${params.toString()}`,
+        buildInstanceApiPath(
+          `/api/skills/hub-search?${params.toString()}`,
+          activeInstanceId,
+        ),
       )
       const payload = (await response.json()) as HubSearchResponse
       if (!response.ok) {
@@ -241,21 +270,15 @@ export function SkillsScreen() {
       return (hubQuery.data?.results || []).map(function mapHubSkill(skill) {
         // Gateway returns: name, description, source, identifier, trust_level, repo, path, tags, extra, installed
         const skillId = skill.id || skill.name
+        const extra = skill.extra ?? {}
         const author =
           skill.author ||
           (skill.repo ? skill.repo.split('/')[0] : null) ||
-          (skill.extra as Record<string, unknown>)?.author ||
+          extra.author ||
           skill.source ||
           'Community'
-        const homepage =
-          skill.homepage ||
-          skill.repo ||
-          (skill.extra as Record<string, unknown>)?.homepage ||
-          null
-        const category =
-          skill.category ||
-          (skill.extra as Record<string, unknown>)?.category ||
-          'Productivity'
+        const homepage = skill.homepage || skill.repo || extra.homepage || null
+        const skillCategory = skill.category || extra.category || 'Productivity'
 
         return {
           id: skillId,
@@ -266,12 +289,11 @@ export function SkillsScreen() {
           triggers: skill.tags,
           tags: skill.tags,
           homepage: typeof homepage === 'string' ? homepage : null,
-          category: String(category),
+          category: String(skillCategory),
           icon:
             skill.source === 'github'
               ? '🐙'
-              : skill.source === 'official' ||
-                  skill.trust_level === 'builtin'
+              : skill.source === 'official' || skill.trust_level === 'builtin'
                 ? '✅'
                 : skill.source === 'skills-sh'
                   ? '📦'
@@ -288,7 +310,10 @@ export function SkillsScreen() {
             .filter(Boolean)
             .join('\n\n'),
           fileCount: 0,
-          sourcePath: skill.identifier || (typeof homepage === 'string' ? homepage : '') || skill.source,
+          sourcePath:
+            skill.identifier ||
+            (typeof homepage === 'string' ? homepage : '') ||
+            skill.source,
           installed: skill.installed,
           enabled: skill.installed,
           featuredGroup: undefined,
@@ -343,18 +368,21 @@ export function SkillsScreen() {
             ? '/api/skills/uninstall'
             : '/api/skills/toggle'
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action,
-          skillId: payload.skillId,
-          name: payload.skillId,
-          identifier: payload.skillId,
-          enabled: payload.enabled,
-          source: payload.source,
-        }),
-      })
+      const response = await fetch(
+        buildInstanceApiPath(endpoint, activeInstanceId),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action,
+            skillId: payload.skillId,
+            name: payload.skillId,
+            identifier: payload.skillId,
+            enabled: payload.enabled,
+            source: payload.source,
+          }),
+        },
+      )
 
       const data = (await response.json()) as {
         error?: string
@@ -380,8 +408,12 @@ export function SkillsScreen() {
       }
 
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['skills-browser'] }),
-        queryClient.invalidateQueries({ queryKey: ['skills-hub-search'] }),
+        queryClient.invalidateQueries({
+          queryKey: ['skills-browser', activeInstanceId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['skills-hub-search', activeInstanceId],
+        }),
       ])
       setSelectedSkill(function updateSelectedSkill(current) {
         if (!current || current.id !== payload.skillId) return current
@@ -480,7 +512,6 @@ export function SkillsScreen() {
                 >
                   Marketplace
                 </TabsTab>
-
               </TabsList>
 
               {tab !== 'marketplace' ? (
@@ -785,9 +816,11 @@ type SkillsGridProps = {
   onToggle: (skillId: string, enabled: boolean) => void
 }
 
-const SECURITY_BADGE: Record<
-  string,
-  { label: string; badgeClass: string; confidence: string }
+const SECURITY_BADGE: Partial<
+  Record<
+    SecurityRisk['level'],
+    { label: string; badgeClass: string; confidence: string }
+  >
 > = {
   safe: {
     label: 'Benign',

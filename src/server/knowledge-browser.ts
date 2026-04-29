@@ -4,8 +4,19 @@ import path from 'node:path'
 import YAML from 'yaml'
 import {
   readKnowledgeBaseConfig,
-  type KnowledgeBaseSource,
+  writeKnowledgeBaseConfig,
 } from './knowledge-config'
+import {
+  listProfileFiles,
+  readProfileFile,
+  writeProfileFile,
+} from './profile-files'
+import type { HermesInstance } from './hermes-instances'
+import type {
+  KnowledgeBaseConfig,
+  KnowledgeBaseSource,
+} from './knowledge-config'
+import type { ProfileFileEntry, ProfileFileOptions } from './profile-files'
 
 export type WikiPageMeta = {
   path: string
@@ -29,7 +40,12 @@ export type WikiLink = {
 }
 
 export type KnowledgeGraph = {
-  nodes: Array<{ id: string; title: string; type?: string; tags: Array<string> }>
+  nodes: Array<{
+    id: string
+    title: string
+    type?: string
+    tags: Array<string>
+  }>
   edges: Array<{ source: string; target: string }>
 }
 
@@ -48,6 +64,44 @@ type ParsedKnowledgePage = {
   meta: WikiPageMeta
   content: string
   raw: string
+}
+
+export type KnowledgeBrowserScopeKind =
+  | 'workspace-local'
+  | 'wsl-profile'
+  | 'unsupported-profile'
+
+export type KnowledgeBrowserScope = {
+  instance: string
+  label: string
+  profile: string
+  profilePath: string
+  kind: KnowledgeBrowserScopeKind
+  configRoot: string
+  configPath: string
+  fallbackRoot: string
+  cacheRoot: string
+}
+
+export type KnowledgeScopePayload = {
+  instance: string
+  label: string
+  profile: string
+  profilePath: string
+  kind: 'instance-scoped' | 'profile-files-unavailable'
+  storage: KnowledgeBrowserScopeKind
+}
+
+type KnowledgeScopeOptions = Pick<ProfileFileOptions, 'executor'>
+
+type KnowledgeSyncResult = {
+  source: KnowledgeBaseSource
+  success: boolean
+  error?: string
+}
+
+const DEFAULT_KNOWLEDGE_CONFIG: KnowledgeBaseConfig = {
+  source: { type: 'local', path: '' },
 }
 
 function shouldSkipDirectory(name: string): boolean {
@@ -129,11 +183,372 @@ function getLegacyKnowledgeRoot(): string {
   return hermesKnowledge
 }
 
+function getLegacyKnowledgeConfigRoot(): string {
+  return path.join(os.homedir(), '.hermes')
+}
+
+function getLegacyKnowledgeConfigPath(): string {
+  return path.join(getLegacyKnowledgeConfigRoot(), 'knowledge-config.json')
+}
+
+function getLegacyKnowledgeCacheRoot(): string {
+  return path.join(os.homedir(), '.hermes', 'knowledge-cache')
+}
+
+function joinWslPath(...parts: Array<string>): string {
+  return path.posix.join(...parts.filter(Boolean))
+}
+
+function getWslHomeFromProfilePath(profilePath: string): string {
+  const marker = '/.hermes'
+  const markerIndex = profilePath.indexOf(marker)
+  if (markerIndex > 0) return profilePath.slice(0, markerIndex)
+  return profilePath
+}
+
+function resolveWslSourcePath(
+  rawPath: string,
+  scope: KnowledgeBrowserScope,
+): string {
+  const trimmed = rawPath.trim()
+  if (!trimmed) return scope.fallbackRoot
+  if (trimmed.startsWith('~/')) {
+    return joinWslPath(
+      getWslHomeFromProfilePath(scope.profilePath),
+      trimmed.slice(2),
+    )
+  }
+  if (trimmed.startsWith('/')) return path.posix.normalize(trimmed)
+  return joinWslPath(scope.profilePath, trimmed)
+}
+
+function getGithubCacheRootForScope(
+  source: Extract<KnowledgeBaseSource, { type: 'github' }>,
+  scope: KnowledgeBrowserScope,
+): string {
+  const safeRepo = source.repo.replace('/', '_')
+  const safePath = source.path.replace(/^\//, '').replace(/\//g, '_')
+  if (scope.kind === 'workspace-local') {
+    return path.join(
+      getLegacyKnowledgeCacheRoot(),
+      'github',
+      safeRepo,
+      source.branch,
+      safePath,
+    )
+  }
+  return joinWslPath(
+    scope.cacheRoot,
+    'github',
+    safeRepo,
+    source.branch,
+    safePath,
+  )
+}
+
+function normalizeGithubRepoPath(input: string): string {
+  return input
+    .replace(/\\/g, '/')
+    .trim()
+    .replace(/^\/+|\/+$/g, '')
+}
+
+function getGithubContentsUrl(
+  source: Extract<KnowledgeBaseSource, { type: 'github' }>,
+  repoPath: string,
+): string {
+  const safePath = normalizeGithubRepoPath(repoPath)
+  const pathSuffix = safePath ? `/${safePath}` : ''
+  return `https://api.github.com/repos/${source.repo}/contents${pathSuffix}?ref=${source.branch}`
+}
+
+function getGithubEntryRelativePath(
+  baseRepoPath: string,
+  entryPath: string,
+): string {
+  const base = normalizeGithubRepoPath(baseRepoPath)
+  const entry = normalizeGithubRepoPath(entryPath)
+  const relativePath = base ? path.posix.relative(base, entry) : entry
+  const parts = relativePath.split('/').filter(Boolean)
+  if (
+    !parts.length ||
+    relativePath.startsWith('..') ||
+    path.posix.isAbsolute(relativePath) ||
+    parts.some((part) => part === '.' || part === '..')
+  ) {
+    throw new Error('GitHub entry path is outside knowledge source path')
+  }
+  return parts.join('/')
+}
+
+export function buildKnowledgeScopeForInstance(
+  instance: Pick<
+    HermesInstance,
+    'id' | 'label' | 'profileName' | 'profilePath' | 'source' | 'isDefault'
+  >,
+): KnowledgeBrowserScope {
+  if (instance.isDefault || instance.id === 'default') {
+    const configRoot = getLegacyKnowledgeConfigRoot()
+    return {
+      instance: 'default',
+      label: instance.label || 'Hermes 1',
+      profile: instance.profileName || 'default',
+      profilePath: instance.profilePath || configRoot,
+      kind: 'workspace-local',
+      configRoot,
+      configPath: getLegacyKnowledgeConfigPath(),
+      fallbackRoot: getLegacyKnowledgeRoot(),
+      cacheRoot: getLegacyKnowledgeCacheRoot(),
+    }
+  }
+
+  if (instance.source === 'wsl') {
+    const profilePath = instance.profilePath
+    return {
+      instance: instance.id,
+      label: instance.label,
+      profile: instance.profileName || instance.id,
+      profilePath,
+      kind: 'wsl-profile',
+      configRoot: profilePath,
+      configPath: joinWslPath(profilePath, 'knowledge-config.json'),
+      fallbackRoot: joinWslPath(profilePath, 'knowledge'),
+      cacheRoot: joinWslPath(profilePath, 'knowledge-cache'),
+    }
+  }
+
+  return {
+    instance: instance.id,
+    label: instance.label,
+    profile: instance.profileName || instance.id,
+    profilePath: instance.profilePath,
+    kind: 'unsupported-profile',
+    configRoot: instance.profilePath,
+    configPath: joinWslPath(instance.profilePath, 'knowledge-config.json'),
+    fallbackRoot: joinWslPath(instance.profilePath, 'knowledge'),
+    cacheRoot: joinWslPath(instance.profilePath, 'knowledge-cache'),
+  }
+}
+
+export function buildKnowledgeScopePayload(
+  scope: KnowledgeBrowserScope,
+): KnowledgeScopePayload {
+  return {
+    instance: scope.instance,
+    label: scope.label,
+    profile: scope.profile,
+    profilePath: scope.profilePath,
+    kind:
+      scope.kind === 'unsupported-profile'
+        ? 'profile-files-unavailable'
+        : 'instance-scoped',
+    storage: scope.kind,
+  }
+}
+
+function ensureWslKnowledgeScope(scope: KnowledgeBrowserScope) {
+  if (scope.kind === 'unsupported-profile') {
+    throw new Error(
+      'Profile knowledge files are unavailable for non-WSL Hermes profiles.',
+    )
+  }
+  if (scope.kind !== 'wsl-profile') {
+    throw new Error('WSL knowledge scope is required')
+  }
+}
+
+function normalizeKnowledgeConfig(input: unknown): KnowledgeBaseConfig {
+  if (!input || typeof input !== 'object') return DEFAULT_KNOWLEDGE_CONFIG
+  const source = (input as { source?: Record<string, unknown> }).source
+  if (!source || typeof source !== 'object') return DEFAULT_KNOWLEDGE_CONFIG
+  if (source.type === 'local') {
+    return {
+      source: {
+        type: 'local',
+        path: typeof source.path === 'string' ? source.path : '',
+      },
+    }
+  }
+  if (source.type === 'github') {
+    return {
+      source: {
+        type: 'github',
+        repo: typeof source.repo === 'string' ? source.repo : '',
+        branch: typeof source.branch === 'string' ? source.branch : 'main',
+        path: typeof source.path === 'string' ? source.path : '',
+      },
+    }
+  }
+  return DEFAULT_KNOWLEDGE_CONFIG
+}
+
+export async function readKnowledgeBaseConfigForScope(
+  scope: KnowledgeBrowserScope,
+  options: KnowledgeScopeOptions = {},
+): Promise<KnowledgeBaseConfig> {
+  if (scope.kind === 'workspace-local') return readKnowledgeBaseConfig()
+  ensureWslKnowledgeScope(scope)
+
+  try {
+    const file = await readProfileFile(
+      scope.configRoot,
+      'knowledge-config.json',
+      {
+        executor: options.executor,
+        extension: '.json',
+      },
+    )
+    return normalizeKnowledgeConfig(JSON.parse(file.content || '{}'))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (/ENOENT|no such file|not found/i.test(message)) {
+      return DEFAULT_KNOWLEDGE_CONFIG
+    }
+    throw error
+  }
+}
+
+export async function writeKnowledgeBaseConfigForScope(
+  scope: KnowledgeBrowserScope,
+  config: KnowledgeBaseConfig,
+  options: KnowledgeScopeOptions = {},
+): Promise<KnowledgeBaseConfig> {
+  const normalized = normalizeKnowledgeConfig(config)
+  if (scope.kind === 'workspace-local') {
+    writeKnowledgeBaseConfig(normalized)
+    return normalized
+  }
+  ensureWslKnowledgeScope(scope)
+  await writeProfileFile(
+    scope.configRoot,
+    'knowledge-config.json',
+    JSON.stringify(normalized, null, 2),
+    {
+      executor: options.executor,
+      extension: '.json',
+    },
+  )
+  return normalized
+}
+
+export async function getKnowledgeRootForScope(
+  scope: KnowledgeBrowserScope,
+  options: KnowledgeScopeOptions = {},
+): Promise<string> {
+  const config = await readKnowledgeBaseConfigForScope(scope, options)
+  const source = config.source
+  if (source.type === 'github') return getGithubCacheRootForScope(source, scope)
+
+  const sourcePath = source.path.trim()
+  if (!sourcePath) return scope.fallbackRoot
+  if (scope.kind === 'workspace-local') {
+    return path.resolve(sourcePath.replace(/^~\//, `${os.homedir()}/`))
+  }
+  return resolveWslSourcePath(sourcePath, scope)
+}
+
 // ─── GitHub Knowledge Provider ─────────────────────────────────────────────────
 
 type GitHubEntry =
   | { type: 'file'; name: string; path: string; sha: string; content?: string }
   | { type: 'dir'; name: string; path: string; sha: string }
+
+async function fetchGithubDirectory(
+  source: Extract<KnowledgeBaseSource, { type: 'github' }>,
+  repoPath: string,
+): Promise<Array<GitHubEntry>> {
+  const res = await fetch(getGithubContentsUrl(source, repoPath), {
+    headers: {
+      Accept: 'application/vnd.github.v3+json',
+      'User-Agent': 'hermes-workspace',
+    },
+  })
+  if (!res.ok) {
+    throw new Error(`GitHub API ${res.status} for ${repoPath || '/'}`)
+  }
+  const entries = await res.json()
+  if (!Array.isArray(entries)) {
+    throw new Error(
+      `GitHub API returned a non-directory for ${repoPath || '/'}`,
+    )
+  }
+  return entries as Array<GitHubEntry>
+}
+
+async function fetchGithubFileContent(
+  source: Extract<KnowledgeBaseSource, { type: 'github' }>,
+  entry: Extract<GitHubEntry, { type: 'file' }>,
+): Promise<string> {
+  const res = await fetch(getGithubContentsUrl(source, entry.path), {
+    headers: {
+      Accept: 'application/vnd.github.v3+json',
+      'User-Agent': 'hermes-workspace',
+    },
+  })
+  if (!res.ok) {
+    throw new Error(`GitHub API ${res.status} for ${entry.path}`)
+  }
+  const data = (await res.json()) as { content?: string; encoding?: string }
+  if (!data.content) {
+    throw new Error(`No content in GitHub response for ${entry.path}`)
+  }
+  if (data.encoding === 'base64') {
+    return Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString(
+      'utf-8',
+    )
+  }
+  return data.content.replace(/\n/g, '')
+}
+
+async function syncGithubDirectoryToProfileCache(
+  source: Extract<KnowledgeBaseSource, { type: 'github' }>,
+  cacheRoot: string,
+  baseRepoPath: string,
+  currentRepoPath: string,
+  options: KnowledgeScopeOptions,
+): Promise<void> {
+  const entries = await fetchGithubDirectory(source, currentRepoPath)
+
+  for (const entry of entries) {
+    if (shouldSkipDirectory(entry.name)) continue
+
+    if (entry.type === 'dir') {
+      await syncGithubDirectoryToProfileCache(
+        source,
+        cacheRoot,
+        baseRepoPath,
+        entry.path,
+        options,
+      )
+      continue
+    }
+
+    if (!entry.name.toLowerCase().endsWith('.md')) continue
+
+    const content = await fetchGithubFileContent(source, entry)
+    const relativePath = getGithubEntryRelativePath(baseRepoPath, entry.path)
+    await writeProfileFile(cacheRoot, relativePath, content, {
+      executor: options.executor,
+      extension: '.md',
+    })
+  }
+}
+
+async function syncGithubSourceToProfileCache(
+  source: Extract<KnowledgeBaseSource, { type: 'github' }>,
+  scope: KnowledgeBrowserScope,
+  options: KnowledgeScopeOptions,
+): Promise<void> {
+  const sourcePath = normalizeGithubRepoPath(source.path)
+  const cacheRoot = getGithubCacheRootForScope(source, scope)
+  await syncGithubDirectoryToProfileCache(
+    source,
+    cacheRoot,
+    sourcePath,
+    sourcePath,
+    options,
+  )
+}
 
 class GitHubKnowledgeProvider {
   private readonly cacheDir: string
@@ -147,12 +562,27 @@ class GitHubKnowledgeProvider {
     const safeRepo = repo.replace('/', '_')
     const safePath = repoPath.replace(/^\//, '').replace(/\//g, '_')
     this.branch = branch
-    const base = path.join(os.homedir(), '.hermes', 'knowledge-cache', 'github', safeRepo, branch, safePath)
+    const base = path.join(
+      os.homedir(),
+      '.hermes',
+      'knowledge-cache',
+      'github',
+      safeRepo,
+      branch,
+      safePath,
+    )
     this.cacheDir = base
   }
 
   private get cacheRoot(): string {
-    return path.join(os.homedir(), '.hermes', 'knowledge-cache', 'github', this.repo.replace('/', '_'), this.branch)
+    return path.join(
+      os.homedir(),
+      '.hermes',
+      'knowledge-cache',
+      'github',
+      this.repo.replace('/', '_'),
+      this.branch,
+    )
   }
 
   /** Fetch + decode the GitHub repo into the local cache directory. */
@@ -169,7 +599,9 @@ class GitHubKnowledgeProvider {
   /** Check whether the local cache is present and non-empty. */
   isCached(): boolean {
     try {
-      return fs.existsSync(this.cacheDir) && fs.readdirSync(this.cacheDir).length > 0
+      return (
+        fs.existsSync(this.cacheDir) && fs.readdirSync(this.cacheDir).length > 0
+      )
     } catch {
       return false
     }
@@ -182,7 +614,10 @@ class GitHubKnowledgeProvider {
   private async fetchDir(dirPath: string): Promise<void> {
     const url = `https://api.github.com/repos/${this.repo}/contents/${dirPath}?ref=${this.branch}`
     const res = await fetch(url, {
-      headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'hermes-workspace' },
+      headers: {
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'hermes-workspace',
+      },
     })
     if (!res.ok) {
       const body = await res.text().catch(() => '')
@@ -209,18 +644,27 @@ class GitHubKnowledgeProvider {
     }
   }
 
-  private async fetchFile(entry: { path: string; sha: string }): Promise<string> {
+  private async fetchFile(entry: {
+    path: string
+    sha: string
+  }): Promise<string> {
     const url = `https://api.github.com/repos/${this.repo}/contents/${entry.path}?ref=${this.branch}`
     const res = await fetch(url, {
-      headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'hermes-workspace' },
+      headers: {
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'hermes-workspace',
+      },
     })
     if (!res.ok) {
       throw new Error(`GitHub API ${res.status} for ${entry.path}`)
     }
     const data = (await res.json()) as { content?: string; encoding?: string }
-    if (!data.content) throw new Error(`No content in GitHub response for ${entry.path}`)
+    if (!data.content)
+      throw new Error(`No content in GitHub response for ${entry.path}`)
     if (data.encoding === 'base64') {
-      return Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf-8')
+      return Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString(
+        'utf-8',
+      )
     }
     return data.content.replace(/\n/g, '')
   }
@@ -233,7 +677,11 @@ function getKnowledgeRoot(): string {
   const source = config.source
 
   if (source.type === 'github') {
-    const provider = new GitHubKnowledgeProvider(source.repo, source.branch, source.path)
+    const provider = new GitHubKnowledgeProvider(
+      source.repo,
+      source.branch,
+      source.path,
+    )
     return provider.root
   }
 
@@ -269,17 +717,17 @@ function getKnowledgeSource(): KnowledgeBaseSource {
   return readKnowledgeBaseConfig().source
 }
 
-export async function syncKnowledgeSource(): Promise<{
-  source: KnowledgeBaseSource
-  success: boolean
-  error?: string
-}> {
+export async function syncKnowledgeSource(): Promise<KnowledgeSyncResult> {
   const source = getKnowledgeSource()
   if (source.type !== 'github') {
     return { source, success: true }
   }
   try {
-    const provider = new GitHubKnowledgeProvider(source.repo, source.branch, source.path)
+    const provider = new GitHubKnowledgeProvider(
+      source.repo,
+      source.branch,
+      source.path,
+    )
     await provider.sync()
     return { source, success: true }
   } catch (err) {
@@ -287,6 +735,33 @@ export async function syncKnowledgeSource(): Promise<{
       source,
       success: false,
       error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+export async function syncKnowledgeSourceForScope(
+  scope: KnowledgeBrowserScope,
+  options: KnowledgeScopeOptions = {},
+): Promise<KnowledgeSyncResult> {
+  if (scope.kind === 'workspace-local') {
+    return syncKnowledgeSource()
+  }
+
+  ensureWslKnowledgeScope(scope)
+  const { source } = await readKnowledgeBaseConfigForScope(scope, options)
+  if (source.type !== 'github') {
+    return { source, success: true }
+  }
+
+  try {
+    await syncGithubSourceToProfileCache(source, scope, options)
+    return { source, success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return {
+      source,
+      success: false,
+      error: `GitHub sync failed for ${source.repo} (branch ${source.branch}): ${message}`,
     }
   }
 }
@@ -321,13 +796,14 @@ function resolveKnowledgeFilePath(relativePath: string): {
 
 // ─── Page parsing ─────────────────────────────────────────────────────────────
 
-function buildPageMeta(
+function buildPageMetaFromRaw(
   relativePath: string,
-  stats: fs.Stats,
+  size: number,
+  modifiedDate: Date,
   raw: string,
 ): ParsedKnowledgePage {
   const { data, content } = parseFrontmatter(raw)
-  const modified = stats.mtime.toISOString()
+  const modified = modifiedDate.toISOString()
   const name = path.basename(relativePath)
   const title = normalizeFrontmatterValue(data.title) || normalizeTitle(name)
   const updated = normalizeFrontmatterValue(data.updated) || modified
@@ -344,13 +820,21 @@ function buildPageMeta(
       summary: normalizeFrontmatterValue(data.summary),
       created: normalizeFrontmatterValue(data.created),
       updated,
-      size: stats.size,
+      size,
       modified,
       wikilinks: extractWikilinks(content),
     },
     content,
     raw,
   }
+}
+
+function buildPageMeta(
+  relativePath: string,
+  stats: fs.Stats,
+  raw: string,
+): ParsedKnowledgePage {
+  return buildPageMetaFromRaw(relativePath, stats.size, stats.mtime, raw)
 }
 
 function readParsedKnowledgeFile(
@@ -411,20 +895,26 @@ function walkKnowledgeDir(
   }
 }
 
-function getParsedKnowledgePages(): Array<ParsedKnowledgePage> {
-  const knowledgeRoot = path.resolve(getKnowledgeRoot())
-  if (!fs.existsSync(knowledgeRoot)) return []
-
-  const results: Array<ParsedKnowledgePage> = []
-  walkKnowledgeDir(results, knowledgeRoot, knowledgeRoot)
-  results.sort((a, b) => {
+function sortParsedKnowledgePages(
+  pages: Array<ParsedKnowledgePage>,
+): Array<ParsedKnowledgePage> {
+  pages.sort((a, b) => {
     const updatedDiff =
       Date.parse(b.meta.updated || b.meta.modified) -
       Date.parse(a.meta.updated || a.meta.modified)
     if (updatedDiff !== 0) return updatedDiff
     return a.meta.path.localeCompare(b.meta.path)
   })
-  return results
+  return pages
+}
+
+function getParsedKnowledgePages(): Array<ParsedKnowledgePage> {
+  const knowledgeRoot = path.resolve(getKnowledgeRoot())
+  if (!fs.existsSync(knowledgeRoot)) return []
+
+  const results: Array<ParsedKnowledgePage> = []
+  walkKnowledgeDir(results, knowledgeRoot, knowledgeRoot)
+  return sortParsedKnowledgePages(results)
 }
 
 function createWikilinkResolver(
@@ -442,6 +932,7 @@ function createWikilinkResolver(
       path.basename(page.meta.path, '.md').toLowerCase(),
       page.meta.path,
     )
+    byName.set(page.meta.title.toLowerCase(), page.meta.path)
   }
 
   return (linkText: string) => {
@@ -459,8 +950,81 @@ function createWikilinkResolver(
   }
 }
 
+function parseProfileKnowledgeEntry(
+  file: ProfileFileEntry,
+): ParsedKnowledgePage | null {
+  if (typeof file.content !== 'string') return null
+  const modifiedDate = new Date(file.modified)
+  const safeModifiedDate = Number.isNaN(modifiedDate.getTime())
+    ? new Date(0)
+    : modifiedDate
+  return buildPageMetaFromRaw(
+    file.path,
+    file.size,
+    safeModifiedDate,
+    file.content,
+  )
+}
+
+async function getParsedKnowledgePagesForScope(
+  scope: KnowledgeBrowserScope,
+  options: KnowledgeScopeOptions = {},
+): Promise<Array<ParsedKnowledgePage>> {
+  if (scope.kind === 'workspace-local') return getParsedKnowledgePages()
+  ensureWslKnowledgeScope(scope)
+
+  const root = await getKnowledgeRootForScope(scope, options)
+  const files = await listProfileFiles(root, {
+    executor: options.executor,
+    extension: '.md',
+    includeContent: true,
+  })
+  return sortParsedKnowledgePages(
+    files
+      .map((file) => parseProfileKnowledgeEntry(file))
+      .filter((page): page is ParsedKnowledgePage => Boolean(page)),
+  )
+}
+
+function buildKnowledgeGraphFromPages(
+  pages: Array<ParsedKnowledgePage>,
+): KnowledgeGraph {
+  const resolveLink = createWikilinkResolver(pages)
+  const edges = new Map<string, WikiLink>()
+
+  for (const page of pages) {
+    for (const wikilink of page.meta.wikilinks) {
+      const target = resolveLink(wikilink)
+      if (!target) continue
+      const key = `${page.meta.path}=>${target}`
+      if (!edges.has(key)) {
+        edges.set(key, { source: page.meta.path, target })
+      }
+    }
+  }
+
+  return {
+    nodes: pages.map((page) => ({
+      id: page.meta.path,
+      title: page.meta.title,
+      type: page.meta.type,
+      tags: page.meta.tags,
+    })),
+    edges: Array.from(edges.values()),
+  }
+}
+
 export function listKnowledgePages(): Array<WikiPageMeta> {
   return getParsedKnowledgePages().map((page) => page.meta)
+}
+
+export async function listKnowledgePagesForScope(
+  scope: KnowledgeBrowserScope,
+  options: KnowledgeScopeOptions = {},
+): Promise<Array<WikiPageMeta>> {
+  return (await getParsedKnowledgePagesForScope(scope, options)).map(
+    (page) => page.meta,
+  )
 }
 
 export function resolveWikilink(linkText: string): string | null {
@@ -497,12 +1061,60 @@ export function readKnowledgePage(relativePath: string): {
   }
 }
 
+export async function readKnowledgePageForScope(
+  relativePath: string,
+  scope: KnowledgeBrowserScope,
+  options: KnowledgeScopeOptions = {},
+): Promise<{
+  meta: WikiPageMeta
+  content: string
+  backlinks: Array<string>
+}> {
+  const safeRelativePath = normalizeRelativeKnowledgePath(relativePath)
+  if (scope.kind === 'workspace-local') {
+    return readKnowledgePage(safeRelativePath)
+  }
+  ensureWslKnowledgeScope(scope)
+
+  const root = await getKnowledgeRootForScope(scope, options)
+  const file = await readProfileFile(root, safeRelativePath, {
+    executor: options.executor,
+    extension: '.md',
+  })
+  const parsed = buildPageMetaFromRaw(
+    safeRelativePath,
+    Buffer.byteLength(file.content, 'utf-8'),
+    new Date(),
+    file.content,
+  )
+
+  const pages = await getParsedKnowledgePagesForScope(scope, options)
+  const resolveLink = createWikilinkResolver(pages)
+  const backlinks = pages
+    .filter((page) => page.meta.path !== safeRelativePath)
+    .filter((page) =>
+      page.meta.wikilinks.some(
+        (link) => resolveLink(link) === safeRelativePath,
+      ),
+    )
+    .map((page) => page.meta.path)
+
+  return {
+    meta:
+      pages.find((page) => page.meta.path === safeRelativePath)?.meta ??
+      parsed.meta,
+    content: parsed.content,
+    backlinks,
+  }
+}
+
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-export function searchKnowledgePages(
+function searchParsedKnowledgePages(
   query: string,
+  pages: Array<ParsedKnowledgePage>,
 ): Array<{ path: string; title: string; line: number; text: string }> {
   const needle = query.trim()
   if (!needle) return []
@@ -514,7 +1126,6 @@ export function searchKnowledgePages(
     line: number
     text: string
   }> = []
-  const pages = getParsedKnowledgePages()
 
   for (const page of pages) {
     const lines = page.raw.split(/\r?\n/)
@@ -534,29 +1145,32 @@ export function searchKnowledgePages(
   return matches
 }
 
+export function searchKnowledgePages(
+  query: string,
+): Array<{ path: string; title: string; line: number; text: string }> {
+  return searchParsedKnowledgePages(query, getParsedKnowledgePages())
+}
+
+export async function searchKnowledgePagesForScope(
+  query: string,
+  scope: KnowledgeBrowserScope,
+  options: KnowledgeScopeOptions = {},
+): Promise<Array<{ path: string; title: string; line: number; text: string }>> {
+  return searchParsedKnowledgePages(
+    query,
+    await getParsedKnowledgePagesForScope(scope, options),
+  )
+}
+
 export function buildKnowledgeGraph(): KnowledgeGraph {
-  const pages = getParsedKnowledgePages()
-  const resolveLink = createWikilinkResolver(pages)
-  const edges = new Map<string, WikiLink>()
+  return buildKnowledgeGraphFromPages(getParsedKnowledgePages())
+}
 
-  for (const page of pages) {
-    for (const wikilink of page.meta.wikilinks) {
-      const target = resolveLink(wikilink)
-      if (!target) continue
-      const key = `${page.meta.path}=>${target}`
-      if (!edges.has(key)) {
-        edges.set(key, { source: page.meta.path, target })
-      }
-    }
-  }
-
-  return {
-    nodes: pages.map((page) => ({
-      id: page.meta.path,
-      title: page.meta.title,
-      type: page.meta.type,
-      tags: page.meta.tags,
-    })),
-    edges: Array.from(edges.values()),
-  }
+export async function buildKnowledgeGraphForScope(
+  scope: KnowledgeBrowserScope,
+  options: KnowledgeScopeOptions = {},
+): Promise<KnowledgeGraph> {
+  return buildKnowledgeGraphFromPages(
+    await getParsedKnowledgePagesForScope(scope, options),
+  )
 }

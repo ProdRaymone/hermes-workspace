@@ -8,10 +8,7 @@ import { useQuery } from '@tanstack/react-query'
 // import { useActivityEvents } from '@/screens/activity/use-activity-events'
 import { useFeatureAvailable } from '@/hooks/use-feature-available'
 import { useHermesInstances } from '@/hooks/use-hermes-instances'
-import {
-  buildInstanceApiPath,
-  isDefaultHermesInstance,
-} from '@/lib/hermes-instance-scope'
+import { buildInstanceApiPath } from '@/lib/hermes-instance-scope'
 
 const REQUEST_TIMEOUT_MS = 3_000
 const SESSIONS_STALE_TIME_MS = 60_000
@@ -159,10 +156,15 @@ export function buildSearchSessionsPath(instanceId?: string | null): string {
   return buildInstanceApiPath('/api/sessions', instanceId)
 }
 
-export function shouldFetchDefaultScopedSkills(
-  instanceId?: string | null,
-): boolean {
-  return isDefaultHermesInstance(instanceId)
+export function buildSearchSkillsPath(instanceId?: string | null): string {
+  return buildInstanceApiPath(
+    '/api/skills?summary=search&limit=120',
+    instanceId,
+  )
+}
+
+export function shouldFetchScopedSkills(instanceId?: string | null): boolean {
+  return Boolean((instanceId || 'default').trim())
 }
 
 async function fetchSessions(
@@ -202,10 +204,11 @@ async function fetchFiles(
 }
 
 async function fetchSkills(
+  instanceId?: string,
   querySignal?: AbortSignal,
 ): Promise<Array<SearchSkill>> {
   const data = await fetchJsonWithTimeout<SkillsApiResponse>(
-    '/api/skills?summary=search&limit=120',
+    buildSearchSkillsPath(instanceId),
     querySignal,
   )
   if (!data) return []
@@ -227,7 +230,7 @@ export function useSearchData(scope: SearchQueryScope) {
   const { activeInstanceId } = useHermesInstances()
   const sessionsAvailable = useFeatureAvailable('sessions', activeInstanceId)
   const skillsAvailable = useFeatureAvailable('skills', activeInstanceId)
-  const canFetchSkills = shouldFetchDefaultScopedSkills(activeInstanceId)
+  const canFetchSkills = shouldFetchScopedSkills(activeInstanceId)
 
   // Sessions
   const sessionsQuery = useQuery({
@@ -256,7 +259,7 @@ export function useSearchData(scope: SearchQueryScope) {
   // Skills
   const skillsQuery = useQuery({
     queryKey: ['search', 'skills', activeInstanceId],
-    queryFn: ({ signal }) => fetchSkills(signal),
+    queryFn: ({ signal }) => fetchSkills(activeInstanceId, signal),
     enabled:
       canFetchSkills &&
       skillsAvailable &&

@@ -4,6 +4,8 @@ import { useActivityStore } from './activity-store'
 import type { ActivityEvent } from './activity-store'
 import { getUnavailableReason } from '@/lib/feature-gates'
 import { useFeatureAvailable } from '@/hooks/use-feature-available'
+import { useHermesInstances } from '@/hooks/use-hermes-instances'
+import { buildInstanceApiPath } from '@/lib/hermes-instance-scope'
 import { cn } from '@/lib/utils'
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -81,7 +83,9 @@ function ArtifactsTab() {
         >
           <div className="flex items-center justify-between gap-2">
             <span className="font-medium">{artifact.text}</span>
-            <span style={{ color: 'var(--theme-accent)' }}>{artifact.time}</span>
+            <span style={{ color: 'var(--theme-accent)' }}>
+              {artifact.time}
+            </span>
           </div>
         </div>
       ))}
@@ -201,7 +205,11 @@ function FilesTab() {
 
 // ── Memory Tab ────────────────────────────────────────────────────────────────
 
-function MemoryTab() {
+export function buildInspectorMemoryListPath(instanceId: string) {
+  return buildInstanceApiPath('/api/memory/list', instanceId)
+}
+
+export function MemoryTab({ instanceId }: { instanceId: string }) {
   const [files, setFiles] = useState<Array<{
     path: string
     name: string
@@ -211,7 +219,9 @@ function MemoryTab() {
 
   useEffect(() => {
     let cancelled = false
-    fetch('/api/memory/list')
+    setLoading(true)
+    setError(null)
+    fetch(buildInspectorMemoryListPath(instanceId))
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
@@ -221,8 +231,8 @@ function MemoryTab() {
           const list = Array.isArray(json?.files) ? json.files : []
           setFiles(
             list.map((entry: Record<string, unknown>) => ({
-              path: String(entry?.path || ''),
-              name: String(entry?.name || entry?.path || ''),
+              path: String(entry.path || ''),
+              name: String(entry.name || entry.path || ''),
             })),
           )
           setLoading(false)
@@ -237,7 +247,7 @@ function MemoryTab() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [instanceId])
 
   if (loading) return <LoadingState text="Loading memory…" />
   if (error) return <ErrorState text={`Memory: ${error}`} />
@@ -275,7 +285,7 @@ type SkillItem = {
   description?: string
 }
 
-function SkillsTab() {
+function SkillsTab({ instanceId }: { instanceId: string }) {
   const [skills, setSkills] = useState<Array<SkillItem>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -283,7 +293,7 @@ function SkillsTab() {
 
   useEffect(() => {
     let cancelled = false
-    fetch('/api/skills')
+    fetch(buildInstanceApiPath('/api/skills', instanceId))
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
@@ -307,18 +317,19 @@ function SkillsTab() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [instanceId])
 
   if (loading) return <LoadingState text="Loading skills…" />
   if (error) return <ErrorState text={`Skills: ${error}`} />
   if (skills.length === 0) return <EmptyState text="No skills found" />
 
   // Group by category
-  const grouped: Record<string, Array<SkillItem>> = {}
+  const grouped: Record<string, Array<SkillItem> | undefined> = {}
   for (const skill of skills) {
     const cat = skill.category || 'Uncategorized'
-    if (!grouped[cat]) grouped[cat] = []
-    grouped[cat].push(skill)
+    const group = grouped[cat] ?? []
+    group.push(skill)
+    grouped[cat] = group
   }
 
   return (
@@ -413,8 +424,9 @@ function LogsTab() {
 
 export function InspectorPanel() {
   const isOpen = useInspectorStore((s) => s.isOpen)
-  const memoryAvailable = useFeatureAvailable('memory')
-  const skillsAvailable = useFeatureAvailable('skills')
+  const { activeInstanceId } = useHermesInstances()
+  const memoryAvailable = useFeatureAvailable('memory', activeInstanceId)
+  const skillsAvailable = useFeatureAvailable('skills', activeInstanceId)
   const [activeTab, setActiveTab] = useState<TabId>('activity')
 
   useEffect(() => {
@@ -522,8 +534,12 @@ export function InspectorPanel() {
             {activeTab === 'activity' && <ActivityTab />}
             {activeTab === 'artifacts' && <ArtifactsTab />}
             {activeTab === 'files' && <FilesTab />}
-            {activeTab === 'memory' && <MemoryTab />}
-            {activeTab === 'skills' && <SkillsTab />}
+            {activeTab === 'memory' && (
+              <MemoryTab instanceId={activeInstanceId} />
+            )}
+            {activeTab === 'skills' && (
+              <SkillsTab instanceId={activeInstanceId} />
+            )}
             {activeTab === 'logs' && <LogsTab />}
           </div>
         </>
