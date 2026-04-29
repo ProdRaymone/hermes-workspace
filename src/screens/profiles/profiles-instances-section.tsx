@@ -5,6 +5,7 @@ import {
   CheckmarkCircle02Icon,
   Clock01Icon,
   PlayIcon,
+  Refresh01Icon,
   UserGroupIcon,
 } from '@hugeicons/core-free-icons'
 import { Button } from '@/components/ui/button'
@@ -28,13 +29,25 @@ import {
   summarizeHermesInstances,
 } from '@/lib/hermes-instance-ui'
 import {
+  buildHermesInstanceFreshnessLabel,
+  buildHermesInstanceStartFailureDisplay,
+  buildHermesInstanceStartLogPath,
   buildHermesInstanceStartPath,
   getHermesInstanceStartButtonState,
+  type HermesInstanceStartFailurePayload,
 } from './profiles-instance-start'
 
 type StartInstanceResponse = {
   ok?: boolean
   message?: string
+  error?: string
+  diagnostic?: HermesInstanceStartFailurePayload['diagnostic']
+  logSummary?: HermesInstanceStartFailurePayload['logSummary']
+}
+
+type StartLogResponse = {
+  ok?: boolean
+  summary?: HermesInstanceStartFailurePayload['logSummary']
   error?: string
 }
 
@@ -93,9 +106,16 @@ export function HermesInstancesSection() {
   const [startingInstanceId, setStartingInstanceId] = useState<string | null>(
     null,
   )
+  const [startFailures, setStartFailures] = useState<
+    Record<string, HermesInstanceStartFailurePayload>
+  >({})
   const summary = useMemo(
     () => summarizeHermesInstances(instances),
     [instances],
+  )
+  const freshnessLabel = buildHermesInstanceFreshnessLabel(
+    instancesQuery.dataUpdatedAt,
+    instancesQuery.isFetching,
   )
 
   async function refreshInstanceState() {
@@ -117,11 +137,26 @@ export function HermesInstancesSection() {
       })
       const payload = (await response.json().catch(() => ({}))) as StartInstanceResponse
       if (!response.ok || payload.ok === false) {
-        throw new Error(payload.error || `Start failed (${response.status})`)
+        const failure = {
+          error: payload.error || `Start failed (${response.status})`,
+          diagnostic: payload.diagnostic,
+          logSummary: payload.logSummary,
+        }
+        setStartFailures((current) => ({
+          ...current,
+          [target.id]: failure,
+        }))
+        const display = buildHermesInstanceStartFailureDisplay(failure)
+        throw new Error(`${display.title}: ${display.message}`)
       }
 
       toast(payload.message || `Starting ${target.label} on :${target.port}`, {
         type: 'success',
+      })
+      setStartFailures((current) => {
+        const next = { ...current }
+        delete next[target.id]
+        return next
       })
       setStartTarget(null)
       await refreshInstanceState()
@@ -140,6 +175,34 @@ export function HermesInstancesSection() {
     }
   }
 
+  async function refreshStartLog(instance: HermesInstanceSummary) {
+    try {
+      const response = await fetch(buildHermesInstanceStartLogPath(instance.id))
+      const payload = (await response.json().catch(() => ({}))) as StartLogResponse
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error || `Log refresh failed (${response.status})`)
+      }
+
+      setStartFailures((current) => ({
+        ...current,
+        [instance.id]: {
+          ...(current[instance.id] || {}),
+          logSummary: payload.summary,
+        },
+      }))
+      toast(`Refreshed ${instance.label} start log summary`, {
+        type: 'info',
+      })
+    } catch (error) {
+      toast(
+        error instanceof Error
+          ? error.message
+          : `Failed to refresh ${instance.label} start log`,
+        { type: 'error' },
+      )
+    }
+  }
+
   return (
     <section className="rounded-2xl border border-primary-200 bg-primary-50/80 p-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-950">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -154,13 +217,39 @@ export function HermesInstancesSection() {
             WSL profiles mapped to local Hermes gateway ports.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <InstanceMetric label="total" value={summary.total} />
-          <InstanceMetric label="live" value={summary.running} />
-          <InstanceMetric label="stopped" value={summary.stopped} />
-          {summary.unknown > 0 ? (
-            <InstanceMetric label="checking" value={summary.unknown} />
-          ) : null}
+        <div className="flex flex-col items-start gap-2 md:items-end">
+          <div className="flex flex-wrap gap-2 md:justify-end">
+            <InstanceMetric label="total" value={summary.total} />
+            <InstanceMetric label="live" value={summary.running} />
+            <InstanceMetric label="stopped" value={summary.stopped} />
+            {summary.unknown > 0 ? (
+              <InstanceMetric label="checking" value={summary.unknown} />
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-primary-500 dark:text-neutral-500">
+            <span className="inline-flex items-center gap-1.5">
+              <HugeiconsIcon
+                icon={Clock01Icon}
+                size={12}
+                strokeWidth={1.7}
+              />
+              {freshnessLabel}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={instancesQuery.isFetching}
+              onClick={() => void refreshInstanceState()}
+              className="h-7 gap-1.5 px-2 text-xs"
+            >
+              <HugeiconsIcon
+                icon={Refresh01Icon}
+                size={13}
+                strokeWidth={1.8}
+              />
+              {instancesQuery.isFetching ? 'Refreshing' : 'Refresh'}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -180,6 +269,10 @@ export function HermesInstancesSection() {
               instance,
               startingInstanceId === instance.id,
             )
+            const startFailure = startFailures[instance.id]
+            const failureDisplay = startFailure
+              ? buildHermesInstanceStartFailureDisplay(startFailure)
+              : null
             return (
               <article
                 key={instance.id}
@@ -278,6 +371,45 @@ export function HermesInstancesSection() {
                     {instance.profilePath}
                   </span>
                 </div>
+                <div className="mt-1 text-[11px] text-primary-400 dark:text-neutral-500">
+                  {freshnessLabel}
+                </div>
+                {failureDisplay ? (
+                  <div className="mt-3 rounded-lg border border-red-200 bg-red-50/80 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-200">
+                    <div className="font-semibold">{failureDisplay.title}</div>
+                    <div className="mt-1 break-words">
+                      {failureDisplay.message}
+                    </div>
+                    {failureDisplay.hint ? (
+                      <div className="mt-1 text-red-600 dark:text-red-300">
+                        {failureDisplay.hint}
+                      </div>
+                    ) : null}
+                    {failureDisplay.logLines.length ? (
+                      <pre className="mt-2 max-h-32 overflow-auto rounded border border-red-200/70 bg-white/70 p-2 font-mono text-[11px] leading-relaxed text-red-900 dark:border-red-900/60 dark:bg-neutral-950/80 dark:text-red-100">
+                        {failureDisplay.logLines.join('\n')}
+                      </pre>
+                    ) : null}
+                    {failureDisplay.truncated ? (
+                      <div className="mt-1 text-red-500 dark:text-red-300">
+                        Showing latest redacted lines.
+                      </div>
+                    ) : null}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void refreshStartLog(instance)}
+                      className="mt-2 h-7 gap-1.5 border-red-200 px-2 text-xs text-red-700 hover:bg-red-100 dark:border-red-900/60 dark:text-red-200 dark:hover:bg-red-950/40"
+                    >
+                      <HugeiconsIcon
+                        icon={Refresh01Icon}
+                        size={13}
+                        strokeWidth={1.8}
+                      />
+                      Refresh log
+                    </Button>
+                  </div>
+                ) : null}
               </article>
             )
           })}

@@ -3,6 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { isAuthenticated } from '../../../server/auth-middleware'
 import { resolveRequestHermesInstance } from '../../../server/hermes-instances'
 import {
+  readHermesInstanceStartLogSummary,
   redactHermesStartMessage,
   startHermesInstance,
 } from '../../../server/hermes-instance-start'
@@ -17,7 +18,9 @@ export const Route = createFileRoute('/api/instances/start')({
 
         try {
           const instance = await resolveRequestHermesInstance(request)
-          const result = await startHermesInstance(instance)
+          const result = await startHermesInstance(instance, {
+            readStartLogSummary: readHermesInstanceStartLogSummary,
+          })
           return json(result, {
             status: result.ok ? 202 : instance.isDefault ? 403 : 400,
           })

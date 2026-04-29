@@ -71,6 +71,24 @@ Hermes2 and Hermes3 Start are implemented and smoke-tested as of 2026-04-29:
 - Hermes2 smoke result: Hermes1 stayed on `8642` with pid `1112`; Hermes2 is running on `8643` with pid `74688`; `/api/connection-status?instance=hermes2` is `connected`, `/api/ping?instance=hermes2` returns HTTP 200, and `/profiles` shows Hermes2 as `live`.
 - Hermes3 smoke result: Hermes1 and Hermes2 stayed running; Hermes3 is running on `8644`; `/api/connection-status?instance=hermes3` is `connected`, `/api/ping?instance=hermes3` returns HTTP 200, `/api/models?instance=hermes3` returns models, `/profiles` shows Hermes3 as `live`, and the chat switcher exposes Hermes1/Hermes2/Hermes3 with no stopped state.
 
+## V1.2 Runtime Hardening Checkpoint
+
+The first V1.2 hardening slice is implemented and smoke-tested as of 2026-04-29:
+
+- Profiles instance cards now expose an explicit refresh action plus a visible last-checked freshness label, so the live/stopped state is not presented as timeless.
+- Start failures now return structured, redacted diagnostics for known failure classes including port conflicts, immediate exits, missing tmux, duplicate Telegram token refusal, timeout, and unknown failures.
+- The WSL start script checks whether the selected instance port is already bound before dispatching a new tmux session, which improves port-conflict diagnosis when `/health` is not reachable.
+- `GET /api/instances/start-log?instance=<id>` returns a redacted, tail-limited summary of the selected non-default profile's `logs/workspace-start.log`; Hermes1/default log summaries are intentionally rejected from this route.
+- Profiles surfaces redacted start failure details and can refresh the redacted per-instance start-log summary without adding Stop or Restart controls.
+- Duplicate-start protection remains: running instances still render as `live` with no Start action, and repeated Start API calls for already-running non-default instances keep returning `already-running`.
+
+Latest V1.2 verification:
+
+- `pnpm test` passed 30 files / 98 tests on 2026-04-29.
+- `pnpm build` passed on 2026-04-29 with the existing sourcemap, dynamic-import, and chunk-size warnings.
+- Existing Workspace `16061` smoke passed for `/api/instances`, `/api/connection-status`, `/api/ping`, `/api/models`, `/profiles`, and `/chat/new` across default/Hermes2/Hermes3.
+- A separate built Workspace smoke on `16062` verified the new `start-log` route and built `/profiles` plus `/chat/new` switcher UI without restarting Hermes1 or replacing the existing `16061` process. The ad-hoc `16062` process was stopped after smoke; it was not used for `/api/models` because it did not inherit the existing Workspace gateway-auth environment.
+
 ## Version Roadmap
 
 The roadmap distinguishes runtime parallelism from full product-level isolation:
@@ -99,12 +117,12 @@ Do not delete either file blindly; decide based on content and current repo conv
 
 Make the three-running-gateway setup easier to diagnose and safer to operate:
 
-- Add clearer per-instance refresh behavior on the Profiles instance cards, including a last-checked timestamp or equivalent visible freshness signal.
-- Keep duplicate Start protection obvious in the UI: running instances should show live state, not a Start action; repeated Start API calls should keep returning `already-running`.
-- Surface start failures with concise, redacted messages. Do not print API keys, full environment variables, `.env` contents, or raw profile files.
-- Add a redacted per-instance start-log summary path, likely from the selected profile's `logs/workspace-start.log`, only after designing the API shape and redaction boundary.
-- Add port-conflict and immediate-exit diagnostics to the Start failure path so the user can tell whether a gateway failed to bind, exited, or never became reachable.
-- Keep Stop/Restart out of scope until explicitly designed. Never add Hermes1/default restart controls without separate user approval.
+- Done: add clearer per-instance refresh behavior on the Profiles instance cards, including a last-checked freshness signal.
+- Done: keep duplicate Start protection obvious in the UI: running instances show live state, not a Start action; repeated Start API calls keep returning `already-running`.
+- Done: surface start failures with concise, redacted messages. Do not print API keys, full environment variables, `.env` contents, or raw profile files.
+- Done: add a redacted per-instance start-log summary path from the selected profile's `logs/workspace-start.log`, with a non-default-only API boundary.
+- Done: add port-conflict and immediate-exit diagnostics to the Start failure path so the user can tell whether a gateway failed to bind, exited, or never became reachable.
+- Still out of scope: Stop/Restart controls. Never add Hermes1/default restart controls without separate user approval.
 
 Suggested acceptance:
 

@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import type { HermesInstanceSummary } from '@/hooks/use-hermes-instances'
 import {
+  buildHermesInstanceFreshnessLabel,
+  buildHermesInstanceStartFailureDisplay,
+  buildHermesInstanceStartLogPath,
   buildHermesInstanceStartPath,
   getHermesInstanceStartButtonState,
 } from './profiles-instance-start'
@@ -49,5 +52,51 @@ describe('profiles instance start helpers', () => {
     expect(buildHermesInstanceStartPath('default')).toBe(
       '/api/instances/start?instance=default',
     )
+  })
+
+  it('keeps the selected instance in the redacted start-log path', () => {
+    expect(buildHermesInstanceStartLogPath('hermes2')).toBe(
+      '/api/instances/start-log?instance=hermes2',
+    )
+  })
+
+  it('formats instance freshness without pretending stale data is live', () => {
+    expect(buildHermesInstanceFreshnessLabel(0, false)).toBe('Not checked yet')
+    expect(
+      buildHermesInstanceFreshnessLabel(
+        new Date('2026-04-29T12:34:56Z').getTime(),
+        false,
+      ),
+    ).toContain('Checked')
+    expect(
+      buildHermesInstanceFreshnessLabel(
+        new Date('2026-04-29T12:34:56Z').getTime(),
+        true,
+      ),
+    ).toContain('Refreshing')
+  })
+
+  it('builds concise redacted failure display text with diagnostics', () => {
+    const display = buildHermesInstanceStartFailureDisplay({
+      error: 'OPENAI_API_KEY=<redacted> failed',
+      diagnostic: {
+        code: 'port-conflict',
+        title: 'Port 8643 is already in use',
+        hint: 'Close the other process or choose a different profile port.',
+      },
+      logSummary: {
+        available: true,
+        truncated: false,
+        lines: ['Authorization: Bearer <redacted>', 'bind failed'],
+      },
+    })
+
+    expect(display.title).toBe('Port 8643 is already in use')
+    expect(display.hint).toContain('different profile port')
+    expect(display.logLines).toEqual([
+      'Authorization: Bearer <redacted>',
+      'bind failed',
+    ])
+    expect(JSON.stringify(display)).not.toContain('live-token')
   })
 })

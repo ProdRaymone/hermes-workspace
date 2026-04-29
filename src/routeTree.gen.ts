@@ -91,6 +91,7 @@ import { Route as ApiKnowledgeReadRouteImport } from './routes/api/knowledge/rea
 import { Route as ApiKnowledgeListRouteImport } from './routes/api/knowledge/list'
 import { Route as ApiKnowledgeGraphRouteImport } from './routes/api/knowledge/graph'
 import { Route as ApiKnowledgeConfigRouteImport } from './routes/api/knowledge/config'
+import { Route as ApiInstancesStartLogRouteImport } from './routes/api/instances/start-log'
 import { Route as ApiInstancesStartRouteImport } from './routes/api/instances/start'
 import { Route as ApiHermesTasksTaskIdRouteImport } from './routes/api/hermes-tasks.$taskId'
 import { Route as ApiHermesProxySplatRouteImport } from './routes/api/hermes-proxy/$'
@@ -508,6 +509,11 @@ const ApiKnowledgeConfigRoute = ApiKnowledgeConfigRouteImport.update({
   path: '/api/knowledge/config',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiInstancesStartLogRoute = ApiInstancesStartLogRouteImport.update({
+  id: '/start-log',
+  path: '/start-log',
+  getParentRoute: () => ApiInstancesRoute,
+} as any)
 const ApiInstancesStartRoute = ApiInstancesStartRouteImport.update({
   id: '/start',
   path: '/start',
@@ -601,6 +607,7 @@ export interface FileRoutesByFullPath {
   '/api/hermes-proxy/$': typeof ApiHermesProxySplatRoute
   '/api/hermes-tasks/$taskId': typeof ApiHermesTasksTaskIdRoute
   '/api/instances/start': typeof ApiInstancesStartRoute
+  '/api/instances/start-log': typeof ApiInstancesStartLogRoute
   '/api/knowledge/config': typeof ApiKnowledgeConfigRoute
   '/api/knowledge/graph': typeof ApiKnowledgeGraphRoute
   '/api/knowledge/list': typeof ApiKnowledgeListRoute
@@ -690,6 +697,7 @@ export interface FileRoutesByTo {
   '/api/hermes-proxy/$': typeof ApiHermesProxySplatRoute
   '/api/hermes-tasks/$taskId': typeof ApiHermesTasksTaskIdRoute
   '/api/instances/start': typeof ApiInstancesStartRoute
+  '/api/instances/start-log': typeof ApiInstancesStartLogRoute
   '/api/knowledge/config': typeof ApiKnowledgeConfigRoute
   '/api/knowledge/graph': typeof ApiKnowledgeGraphRoute
   '/api/knowledge/list': typeof ApiKnowledgeListRoute
@@ -781,6 +789,7 @@ export interface FileRoutesById {
   '/api/hermes-proxy/$': typeof ApiHermesProxySplatRoute
   '/api/hermes-tasks/$taskId': typeof ApiHermesTasksTaskIdRoute
   '/api/instances/start': typeof ApiInstancesStartRoute
+  '/api/instances/start-log': typeof ApiInstancesStartLogRoute
   '/api/knowledge/config': typeof ApiKnowledgeConfigRoute
   '/api/knowledge/graph': typeof ApiKnowledgeGraphRoute
   '/api/knowledge/list': typeof ApiKnowledgeListRoute
@@ -873,6 +882,7 @@ export interface FileRouteTypes {
     | '/api/hermes-proxy/$'
     | '/api/hermes-tasks/$taskId'
     | '/api/instances/start'
+    | '/api/instances/start-log'
     | '/api/knowledge/config'
     | '/api/knowledge/graph'
     | '/api/knowledge/list'
@@ -962,6 +972,7 @@ export interface FileRouteTypes {
     | '/api/hermes-proxy/$'
     | '/api/hermes-tasks/$taskId'
     | '/api/instances/start'
+    | '/api/instances/start-log'
     | '/api/knowledge/config'
     | '/api/knowledge/graph'
     | '/api/knowledge/list'
@@ -1052,6 +1063,7 @@ export interface FileRouteTypes {
     | '/api/hermes-proxy/$'
     | '/api/hermes-tasks/$taskId'
     | '/api/instances/start'
+    | '/api/instances/start-log'
     | '/api/knowledge/config'
     | '/api/knowledge/graph'
     | '/api/knowledge/list'
@@ -1733,6 +1745,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiKnowledgeConfigRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/instances/start-log': {
+      id: '/api/instances/start-log'
+      path: '/start-log'
+      fullPath: '/api/instances/start-log'
+      preLoaderRoute: typeof ApiInstancesStartLogRouteImport
+      parentRoute: typeof ApiInstancesRoute
+    }
     '/api/instances/start': {
       id: '/api/instances/start'
       path: '/start'
@@ -1820,10 +1839,12 @@ const ApiHermesTasksRouteWithChildren = ApiHermesTasksRoute._addFileChildren(
 
 interface ApiInstancesRouteChildren {
   ApiInstancesStartRoute: typeof ApiInstancesStartRoute
+  ApiInstancesStartLogRoute: typeof ApiInstancesStartLogRoute
 }
 
 const ApiInstancesRouteChildren: ApiInstancesRouteChildren = {
   ApiInstancesStartRoute: ApiInstancesStartRoute,
+  ApiInstancesStartLogRoute: ApiInstancesStartLogRoute,
 }
 
 const ApiInstancesRouteWithChildren = ApiInstancesRoute._addFileChildren(
