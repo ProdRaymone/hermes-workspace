@@ -106,10 +106,10 @@ Use this order for the next Codex window:
 
 ### 0. Clean Working Tree Boundaries
 
-Before starting V1.2 implementation, resolve the two remaining untracked files:
+Before starting V1.2 implementation, resolve the two remaining working-tree boundary files:
 
-- `pnpm-workspace.yaml`: review whether this package-manager metadata belongs in the repo. If it is required for reproducible pnpm behavior, stage it in its own small commit; otherwise leave it untracked or ignore it after confirming intent.
-- `start-hermes-workspace.cmd`: keep this out of the V1/V1.1 multi-instance commit line unless it is separately reviewed. It is default/Hermes1-oriented today and should not be treated as a multi-instance runtime launcher without redesign.
+- Done: `pnpm-workspace.yaml` is committed as package-manager metadata for pnpm 10 dependency build-script approvals.
+- Done: `start-hermes-workspace.cmd` is separately reviewed as a Windows Workspace-only launcher. It may build/start/open the Workspace, and it may probe Hermes1/default health, but it must not start, stop, restart, or kill any Hermes gateway.
 
 Do not delete either file blindly; decide based on content and current repo conventions.
 
@@ -281,8 +281,8 @@ Snapshot from 2026-04-29 after the Hermes2 V1.1 smoke:
 - **Startup / status / onboarding:** startup overlay, reconnect banner, status dot, root layout state, auth-check, connection-status, gateway-status, and onboarding scope helpers.
 - **Dashboard / Memory / Knowledge / Skills display:** V1 scope banners and hidden/default-scoped Skills behavior for non-default instances.
 - **Tests:** 20 focused new/updated test files cover instance discovery, auth/status semantics, chat local state isolation, run-store isolation, Start safety, and V1 display-only behavior.
-- **Generated/config:** `src/routeTree.gen.ts` is expected because new routes were added; `vite.config.ts` intentionally lets the real `/api/connection-status` route handle that endpoint instead of the Vite proxy shim; `pnpm-workspace.yaml` is currently untracked package-manager metadata and should be reviewed when staging.
-- **Hold / separate review:** `start-hermes-workspace.cmd` is untracked and default/Hermes1-oriented. Do not fold it into the V1/V1.1 multi-instance commit unless it is separately reviewed and updated for the current runtime story.
+- **Generated/config:** `src/routeTree.gen.ts` is expected because new routes were added; `vite.config.ts` intentionally lets the real `/api/connection-status` route handle that endpoint instead of the Vite proxy shim; `pnpm-workspace.yaml` is committed package-manager metadata for pnpm 10 dependency build-script approvals.
+- **Windows launcher:** `start-hermes-workspace.cmd` is a Workspace-only convenience launcher. It probes Hermes1/default health and prints guidance if unreachable, but it intentionally never auto-starts or restarts Hermes gateways. Keep it out of any future multi-instance gateway control story unless redesigned.
 
 Lightweight safety checks from the grouping pass:
 
