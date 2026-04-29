@@ -82,6 +82,63 @@ The roadmap distinguishes runtime parallelism from full product-level isolation:
 
 Practical rule: three Hermes processes running side by side for chat is the V1.1 target and is now smoke-tested; three complete Hermes workspaces with independent Knowledge/Memory/Skills semantics is a V2 target.
 
+## Next Execution Plan
+
+Use this order for the next Codex window:
+
+### 0. Clean Working Tree Boundaries
+
+Before starting V1.2 implementation, resolve the two remaining untracked files:
+
+- `pnpm-workspace.yaml`: review whether this package-manager metadata belongs in the repo. If it is required for reproducible pnpm behavior, stage it in its own small commit; otherwise leave it untracked or ignore it after confirming intent.
+- `start-hermes-workspace.cmd`: keep this out of the V1/V1.1 multi-instance commit line unless it is separately reviewed. It is default/Hermes1-oriented today and should not be treated as a multi-instance runtime launcher without redesign.
+
+Do not delete either file blindly; decide based on content and current repo conventions.
+
+### 1. V1.2 Runtime Hardening - First Slice
+
+Make the three-running-gateway setup easier to diagnose and safer to operate:
+
+- Add clearer per-instance refresh behavior on the Profiles instance cards, including a last-checked timestamp or equivalent visible freshness signal.
+- Keep duplicate Start protection obvious in the UI: running instances should show live state, not a Start action; repeated Start API calls should keep returning `already-running`.
+- Surface start failures with concise, redacted messages. Do not print API keys, full environment variables, `.env` contents, or raw profile files.
+- Add a redacted per-instance start-log summary path, likely from the selected profile's `logs/workspace-start.log`, only after designing the API shape and redaction boundary.
+- Add port-conflict and immediate-exit diagnostics to the Start failure path so the user can tell whether a gateway failed to bind, exited, or never became reachable.
+- Keep Stop/Restart out of scope until explicitly designed. Never add Hermes1/default restart controls without separate user approval.
+
+Suggested acceptance:
+
+- Three running instances still show `live` on `/profiles`.
+- Stopped or failed non-default instances show a clear, non-blocking failure state.
+- No secrets appear in API responses, UI, logs copied into UI, tests, or docs.
+- `pnpm test` and `pnpm build` pass after changes.
+
+### 2. Three-Instance Runtime Smoke
+
+After V1.2 changes, run a short smoke against all three instances:
+
+- `/api/instances`
+- `/api/connection-status?instance=default|hermes2|hermes3`
+- `/api/ping?instance=default|hermes2|hermes3`
+- `/api/models?instance=default|hermes2|hermes3`
+- `/profiles`
+- `/chat/new` with the Hermes switcher opened
+
+For Playwright browser smoke, prefer `domcontentloaded` plus visible-selector checks instead of `networkidle`; chat pages may keep background requests open.
+
+### 3. V2 Design Entry
+
+Start V2 only after the runtime layer feels boring and debuggable. V2 should be a design-first slice covering how these become truly separate workspaces:
+
+- per-instance Knowledge config and browsing
+- per-instance Memory APIs and UI
+- per-instance Skills APIs and visibility
+- per-instance Hermes config and profile editing
+- MCP/config helpers scoped to the selected WSL profile
+- migration/compatibility rules for Hermes1/default legacy paths
+
+V2 should begin with a written design before code changes because it changes product semantics, not only process/runtime behavior.
+
 ## Execution Order
 
 ### 1. Multi-Instance Impact Audit
@@ -252,9 +309,18 @@ Constraints:
 - Do not auto-start Hermes2/Hermes3 until Start-button work and user confirmation.
 
 Current verified baseline:
-- pnpm test
-- pnpm build
+- `pnpm test` passed 30 files / 91 tests on 2026-04-29
+- `pnpm build` passed on 2026-04-29 with existing warnings
+- Hermes1/default running on 8642
+- Hermes2 running on 8643
+- Hermes3 running on 8644
+- V1.1 three-instance API and browser smoke passed
 
 Next recommended slice:
-- Continue from the earliest incomplete section in docs/HERMES_MULTI_INSTANCE_PLAN.md.
+- First resolve untracked `pnpm-workspace.yaml` and `start-hermes-workspace.cmd`.
+- Then start V1.2 Runtime Hardening from the `Next Execution Plan` section.
+
+Recent local commits:
+- d0cd6e5 Document Hermes3 start smoke
+- 286821f Add Hermes multi-instance safety and start flow
 ```
