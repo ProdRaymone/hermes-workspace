@@ -8,7 +8,9 @@ import {
 } from '@hugeicons/core-free-icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { HermesInstanceScopeBanner } from '@/components/hermes-instance-scope-banner'
 import { toast } from '@/components/ui/toast'
+import { useHermesInstances } from '@/hooks/use-hermes-instances'
 import { cn } from '@/lib/utils'
 
 type MemoryFileMeta = {
@@ -115,6 +117,7 @@ export function MemoryBrowserScreen() {
   const [isSaving, setIsSaving] = useState(false)
   const lineRefs = useRef<Record<number, HTMLDivElement | null>>({})
   const queryClient = useQueryClient()
+  const { activeInstance } = useHermesInstances()
   const searchTerm = deferredSearch.trim()
 
   const filesQuery = useQuery({
@@ -289,6 +292,13 @@ export function MemoryBrowserScreen() {
             </div>
           </div>
         </div>
+        <HermesInstanceScopeBanner
+          className="mt-3"
+          instance={activeInstance}
+          scopeKind="workspace-shared"
+          title="Memory scope"
+          detail="Memory browser reads the Workspace server's local memory files; V1 shows the selected Hermes agent for context without implying per-profile memory isolation."
+        />
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 md:grid-cols-3 md:p-4">

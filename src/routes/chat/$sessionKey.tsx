@@ -3,6 +3,8 @@ import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { moveHistoryMessages } from '../../screens/chat/chat-queries'
 import { ErrorBoundary } from '@/components/error-boundary'
+import { getActiveHermesInstanceId } from '@/hooks/use-hermes-instances'
+import { getLastSessionStorageKey } from '@/screens/chat/chat-screen-utils'
 
 const ChatScreen = lazy(async () => {
   const module = await import('../../screens/chat/chat-screen')
@@ -91,6 +93,7 @@ function ChatRoute() {
         sourceSessionKey,
         payload.friendlyId,
         payload.sessionKey,
+        getActiveHermesInstanceId(),
       )
       queryClient.invalidateQueries({ queryKey: ['chat', 'sessions'] })
       setForcedSession({
@@ -99,7 +102,10 @@ function ChatRoute() {
       })
       // Persist last session for refresh recovery
       try {
-        localStorage.setItem('hermes-last-session', payload.friendlyId)
+        localStorage.setItem(
+          getLastSessionStorageKey(getActiveHermesInstanceId()),
+          payload.friendlyId,
+        )
       } catch {}
       navigate({
         to: '/chat/$sessionKey',

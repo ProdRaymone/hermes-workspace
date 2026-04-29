@@ -684,6 +684,7 @@ export function useStreamingMessage(options: UseStreamingMessageOptions = {}) {
       attachments?: Array<ChatAttachment>
       idempotencyKey?: string
       model?: string
+      instanceId?: string
     }) => {
       if (eventSourceRef.current) {
         // Preserve in-progress response as a partial message before aborting
@@ -725,7 +726,10 @@ export function useStreamingMessage(options: UseStreamingMessageOptions = {}) {
       })
 
       try {
-        const response = await fetch('/api/send-stream', {
+        const query = new URLSearchParams({
+          instance: params.instanceId || 'default',
+        })
+        const response = await fetch(`/api/send-stream?${query.toString()}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -738,6 +742,7 @@ export function useStreamingMessage(options: UseStreamingMessageOptions = {}) {
             attachments: params.attachments,
             idempotencyKey: params.idempotencyKey ?? crypto.randomUUID(),
             model: params.model || undefined,
+            instance: params.instanceId || 'default',
             locale: typeof window !== 'undefined' ? localStorage.getItem('hermes-workspace-locale') || 'en' : 'en',
           }),
           signal: abortController.signal,

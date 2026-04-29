@@ -1,9 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
-import {
-  HERMES_API,
-  ensureGatewayProbed,
-} from '../../server/gateway-capabilities'
 import { requireLocalOrAuth } from '../../server/auth-middleware'
+import { resolveRequestHermesInstance } from '../../server/hermes-instances'
+import { probeInstanceCapabilities } from '../../server/hermes-instance-api'
 
 type PingResponse = {
   ok: boolean
@@ -22,20 +20,21 @@ export const Route = createFileRoute('/api/ping')({
               ok: false,
               error: 'Authentication required',
               status: 401,
-              hermesUrl: HERMES_API,
+              hermesUrl: '',
             } satisfies PingResponse,
             { status: 401 },
           )
         }
 
-        const caps = await ensureGatewayProbed()
+        const instance = await resolveRequestHermesInstance(request)
+        const caps = await probeInstanceCapabilities(instance)
         if (!caps.health) {
           return Response.json(
             {
               ok: false,
               error: 'Hermes unavailable',
               status: 503,
-              hermesUrl: HERMES_API,
+              hermesUrl: instance.gatewayUrl,
             } satisfies PingResponse,
             { status: 503 },
           )
@@ -45,7 +44,7 @@ export const Route = createFileRoute('/api/ping')({
           {
             ok: true,
             status: 200,
-            hermesUrl: HERMES_API,
+            hermesUrl: instance.gatewayUrl,
           } satisfies PingResponse,
           { status: 200 },
         )

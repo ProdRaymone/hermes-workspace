@@ -12,7 +12,6 @@ import {
 } from 'recharts'
 import type { ReactNode } from 'react'
 import type { HermesSession } from '@/server/hermes-api'
-import { chatQueryKeys } from '@/screens/chat/chat-queries'
 import { getUnavailableReason } from '@/lib/feature-gates'
 import { useFeatureAvailable } from '@/hooks/use-feature-available'
 import { cn } from '@/lib/utils'
@@ -20,6 +19,11 @@ import { openHamburgerMenu } from '@/components/mobile-hamburger-menu'
 import { applyTheme, useSettingsStore } from '@/hooks/use-settings'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Moon02Icon, Sun02Icon } from '@hugeicons/core-free-icons'
+import { HermesInstanceScopeBanner } from '@/components/hermes-instance-scope-banner'
+import {
+  useHermesInstances,
+  type HermesInstanceSummary,
+} from '@/hooks/use-hermes-instances'
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -385,41 +389,18 @@ function ActivityChart({
 
 // ── Model Card ───────────────────────────────────────────────────
 
-function ModelCard({ palette }: { palette: ReturnType<typeof readDashboardPalette> }) {
-  const sessionsAvailable = useFeatureAvailable('sessions')
-  const configAvailable = useFeatureAvailable('config')
-  const configQuery = useQuery({
-    queryKey: ['hermes-config'],
-    queryFn: async () => {
-      const res = await fetch('/api/hermes-config')
-      if (!res.ok) return null
-      return res.json() as Promise<Record<string, unknown>>
-    },
-    staleTime: 30_000,
-    enabled: configAvailable,
-  })
-  const config = configQuery.data as Record<string, unknown> | undefined
-  const modelName = (config?.activeModel ?? '—') as string
-  const provider = (config?.activeProvider ?? '—') as string
-  const configBlock = config?.config as Record<string, unknown> | undefined
-  const modelBlock = configBlock?.model as Record<string, unknown> | undefined
-  const baseUrl = (modelBlock?.base_url ??
-    configBlock?.base_url ??
-    '') as string
-  const connected = sessionsAvailable
-  const fallbackBlock = config?.fallback_model as
-    | Record<string, unknown>
-    | undefined
-  const fallbackModel = fallbackBlock?.model as string | undefined
-
-  if (!configAvailable) {
-    return (
-      <UnavailableWidget
-        title="Model"
-        description={getUnavailableReason('config')}
-      />
-    )
-  }
+function ModelCard({
+  palette,
+  instance,
+  connected,
+}: {
+  palette: ReturnType<typeof readDashboardPalette>
+  instance?: HermesInstanceSummary
+  connected: boolean
+}) {
+  const modelName = instance?.model || 'Not set'
+  const provider = instance?.provider || 'Provider not set'
+  const gateway = instance?.gatewayUrl || 'Gateway unknown'
 
   return (
     <GlassCard
@@ -455,29 +436,28 @@ function ModelCard({ palette }: { palette: ReturnType<typeof readDashboardPalett
           </div>
           <div className="min-w-0 flex-1">
             <div className="font-mono text-[13px] font-bold text-ink truncate">
-              {typeof modelName === 'string' ? modelName : '—'}
+              {modelName}
             </div>
             <div className="text-[10px] text-muted font-mono truncate">
-              {provider}
-              {baseUrl ? ` · ${baseUrl}` : ''}
+              {provider} · {gateway}
             </div>
           </div>
         </div>
-        {fallbackModel && (
+        {instance?.profilePath ? (
           <div className="flex items-center gap-3 rounded-lg p-2.5 bg-[var(--theme-card2)] border border-[var(--theme-border)]">
             <div className="flex size-7 items-center justify-center rounded-md bg-amber-500/10 text-sm">
-              🔄
+              📁
             </div>
             <div className="min-w-0 flex-1">
               <div className="font-mono text-[13px] text-ink truncate">
-                {fallbackModel}
+                {instance.profileName}
               </div>
               <div className="text-[10px] text-muted font-mono truncate">
-                {(fallbackBlock?.provider as string) ?? ''}
+                {instance.profilePath}
               </div>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </GlassCard>
   )
@@ -485,10 +465,17 @@ function ModelCard({ palette }: { palette: ReturnType<typeof readDashboardPalett
 
 // ── Skills Widget ────────────────────────────────────────────────
 
-function SkillsWidget({ palette }: { palette: ReturnType<typeof readDashboardPalette> }) {
-  const skillsAvailable = useFeatureAvailable('skills')
+function SkillsWidget({
+  palette,
+  instanceId,
+}: {
+  palette: ReturnType<typeof readDashboardPalette>
+  instanceId: string
+}) {
+  const skillsFeatureAvailable = useFeatureAvailable('skills', instanceId)
+  const skillsAvailable = instanceId === 'default' && skillsFeatureAvailable
   const skillsQuery = useQuery({
-    queryKey: ['hermes-skills'],
+    queryKey: ['hermes-skills', instanceId],
     queryFn: async () => {
       const res = await fetch(
         '/api/skills?tab=installed&limit=8&summary=search',
@@ -507,7 +494,11 @@ function SkillsWidget({ palette }: { palette: ReturnType<typeof readDashboardPal
     return (
       <UnavailableWidget
         title="Skills"
-        description={getUnavailableReason('skills')}
+        description={
+          instanceId === 'default'
+            ? getUnavailableReason('skills')
+            : 'Skills inventory is still default-profile scoped in V1, so it is hidden for Hermes2/3 until the instance-scoped skills API is wired.'
+        }
       />
     )
   }
@@ -670,8 +661,11 @@ function SessionRow({
 
 export function DashboardScreen() {
   const navigate = useNavigate()
-  const sessionsAvailable = useFeatureAvailable('sessions')
-  const skillsAvailable = useFeatureAvailable('skills')
+  const { activeInstanceId, activeInstance } = useHermesInstances()
+  const sessionsAvailable = useFeatureAvailable('sessions', activeInstanceId)
+  const skillsFeatureAvailable = useFeatureAvailable('skills', activeInstanceId)
+  const skillsAvailable =
+    activeInstanceId === 'default' && skillsFeatureAvailable
   const sessionsQuery = useQuery({
     // Use a dedicated query key — NOT chatQueryKeys.sessions — to avoid
     // cache collisions with the chat sidebar which fetches fewer sessions
@@ -679,9 +673,14 @@ export function DashboardScreen() {
     // Also use the workspace proxy (/api/sessions) rather than the server-side
     // listSessions() — the latter calls the gateway via HERMES_API which is
     // only available server-side and returns nothing when called from the client.
-    queryKey: ['dashboard', 'sessions'],
+    queryKey: ['dashboard', 'sessions', activeInstanceId],
     queryFn: async () => {
-      const res = await fetch('/api/sessions?limit=200&offset=0')
+      const query = new URLSearchParams({
+        limit: '200',
+        offset: '0',
+        instance: activeInstanceId,
+      })
+      const res = await fetch(`/api/sessions?${query.toString()}`)
       if (!res.ok) return []
       const data = (await res.json()) as {
         sessions?: Array<Record<string, unknown>>
@@ -833,6 +832,13 @@ export function DashboardScreen() {
             onClick={() => navigate({ to: '/settings', search: {} })}
           />
         </div>
+        <HermesInstanceScopeBanner
+          className="w-full max-w-2xl"
+          instance={activeInstance}
+          scopeKind="instance-scoped"
+          title="Dashboard scope"
+          detail="Sessions, status, and activity are read for the selected Hermes agent; stopped agents stay visible as stopped rather than inheriting Hermes1 state."
+        />
       </div>
 
       {/* ── Metrics Row ── */}
@@ -884,10 +890,14 @@ export function DashboardScreen() {
           )}
         </div>
         <div className="lg:col-span-4">
-          <ModelCard palette={palette} />
+          <ModelCard
+            palette={palette}
+            instance={activeInstance}
+            connected={sessionsAvailable}
+          />
         </div>
         <div className="lg:col-span-3">
-          <SkillsWidget palette={palette} />
+          <SkillsWidget palette={palette} instanceId={activeInstanceId} />
         </div>
       </div>
 

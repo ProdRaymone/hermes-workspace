@@ -123,6 +123,7 @@ type ChatSidebarProps = {
   sessionsFetching: boolean
   sessionsError: string | null
   onRetrySessions: () => void
+  instanceId?: string
 }
 
 // ── Reusable nav item ───────────────────────────────────────────────────
@@ -498,6 +499,7 @@ function ChatSidebarComponent({
   sessionsFetching,
   sessionsError,
   onRetrySessions,
+  instanceId = 'default',
 }: ChatSidebarProps) {
   const {
     settingsOpen,
@@ -1076,6 +1078,7 @@ function ChatSidebarComponent({
                     fetching={sessionsFetching}
                     error={sessionsError}
                     onRetry={onRetrySessions}
+                    instanceId={instanceId}
                   />
                 </div>
               </motion.div>
@@ -1118,7 +1121,7 @@ function ChatSidebarComponent({
                     <span className="block truncate text-sm font-medium text-primary-900 dark:text-neutral-100">
                       {profileDisplayName}
                     </span>
-                    <StatusDot />
+                    <StatusDot instanceId={instanceId} />
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -1233,6 +1236,7 @@ function areSidebarPropsEqual(
   if (prevProps.sessionsFetching !== nextProps.sessionsFetching) return false
   if (prevProps.sessionsError !== nextProps.sessionsError) return false
   if (prevProps.onRetrySessions !== nextProps.onRetrySessions) return false
+  if (prevProps.instanceId !== nextProps.instanceId) return false
   if (!areSessionsEqual(prevProps.sessions, nextProps.sessions)) return false
   return true
 }

@@ -9,13 +9,11 @@ import {
   persistPendingMessage,
   readPendingMessage,
 } from '../pending-send'
+import { readPortableHistory } from '../portable-history'
 import { useChatSettingsStore } from '../../../hooks/use-chat-settings'
 import type { PendingSendPayload } from '../pending-send'
 import type { QueryClient } from '@tanstack/react-query'
 import type { ChatMessage, HistoryResponse } from '../types'
-
-const PORTABLE_HISTORY_STORAGE_KEY = 'hermes_portable_chat_main'
-const PORTABLE_HISTORY_LIMIT = 100
 
 type UseChatHistoryInput = {
   activeFriendlyId: string
@@ -29,6 +27,7 @@ type UseChatHistoryInput = {
   historyRefetchInterval?: number
   /** When true, skip all server history fetching (portable mode). */
   portableMode?: boolean
+  instanceId?: string
 }
 
 function normalizeSessionCandidate(value: string | undefined): string {
@@ -37,25 +36,6 @@ function normalizeSessionCandidate(value: string | undefined): string {
   if (!trimmed) return ''
   if (trimmed === 'new') return ''
   return trimmed
-}
-
-function readPortableHistory(): HistoryResponse {
-  if (typeof window === 'undefined') {
-    return { sessionKey: 'main', messages: [] }
-  }
-
-  try {
-    const raw = window.localStorage.getItem(PORTABLE_HISTORY_STORAGE_KEY)
-    if (!raw) return { sessionKey: 'main', messages: [] }
-    const parsed = JSON.parse(raw) as { messages?: Array<ChatMessage> } | null
-    const messages = Array.isArray(parsed?.messages) ? parsed.messages : []
-    return {
-      sessionKey: 'main',
-      messages: messages.slice(-PORTABLE_HISTORY_LIMIT),
-    }
-  } catch {
-    return { sessionKey: 'main', messages: [] }
-  }
 }
 
 type ExecNotification = {
@@ -227,6 +207,7 @@ export function useChatHistory({
   queryClient,
   historyRefetchInterval,
   portableMode = false,
+  instanceId = 'default',
 }: UseChatHistoryInput) {
   const explicitRouteSessionKey = useMemo(() => {
     const normalizedFriendlyId = normalizeSessionCandidate(activeFriendlyId)
@@ -279,19 +260,20 @@ export function useChatHistory({
     ? 'main'
     : sessionKeyForHistory
   const portableHistory = useMemo(
-    () => (portableMode ? readPortableHistory() : undefined),
-    [portableMode],
+    () => (portableMode ? readPortableHistory(instanceId) : undefined),
+    [instanceId, portableMode],
   )
   const historyKey = chatQueryKeys.history(
     effectiveFriendlyId,
     effectiveSessionKeyForHistory,
+    instanceId,
   )
 
   const historyQuery = useQuery({
     queryKey: historyKey,
     queryFn: async function fetchHistoryForSession() {
       if (portableMode) {
-        return readPortableHistory()
+        return readPortableHistory(instanceId)
       }
 
       const cached = queryClient.getQueryData(historyKey)
@@ -306,6 +288,7 @@ export function useChatHistory({
       const serverData = await fetchHistory({
         sessionKey: sessionKeyForHistory,
         friendlyId: activeFriendlyId,
+        instanceId,
       })
       if (!optimisticMessages.length) return serverData
 
@@ -349,9 +332,9 @@ export function useChatHistory({
   useEffect(() => {
     cleanupExpiredPendingSends()
     setPersistedPending(
-      readPendingMessage(sessionKeyForHistory, activeFriendlyId),
+      readPendingMessage(sessionKeyForHistory, activeFriendlyId, instanceId),
     )
-  }, [activeFriendlyId, sessionKeyForHistory])
+  }, [activeFriendlyId, instanceId, sessionKeyForHistory])
 
   const rawHistoryMessages = useMemo(() => {
     return Array.isArray(historyQuery.data?.messages)
@@ -370,16 +353,19 @@ export function useChatHistory({
     const latestOptimisticMessage =
       optimisticMessages[optimisticMessages.length - 1]
 
-    persistPendingMessage({
-      sessionKey: sessionKeyForHistory,
-      friendlyId: activeFriendlyId,
-      message: textFromMessage(latestOptimisticMessage),
-      attachments: Array.isArray(latestOptimisticMessage.attachments)
-        ? latestOptimisticMessage.attachments
-        : [],
-      optimisticMessage: latestOptimisticMessage,
-    })
-  }, [activeFriendlyId, rawHistoryMessages, sessionKeyForHistory])
+    persistPendingMessage(
+      {
+        sessionKey: sessionKeyForHistory,
+        friendlyId: activeFriendlyId,
+        message: textFromMessage(latestOptimisticMessage),
+        attachments: Array.isArray(latestOptimisticMessage.attachments)
+          ? latestOptimisticMessage.attachments
+          : [],
+        optimisticMessage: latestOptimisticMessage,
+      },
+      instanceId,
+    )
+  }, [activeFriendlyId, instanceId, rawHistoryMessages, sessionKeyForHistory])
 
   useEffect(() => {
     if (!persistedPending) return
@@ -389,10 +375,10 @@ export function useChatHistory({
         persistedPending.optimisticMessage,
       )
     ) {
-      clearPendingMessage(persistedPending.sessionKey)
+      clearPendingMessage(persistedPending.sessionKey, instanceId)
       setPersistedPending(null)
     }
-  }, [persistedPending, rawHistoryMessages])
+  }, [instanceId, persistedPending, rawHistoryMessages])
 
   const stableHistorySignatureRef = useRef('')
   const stableHistoryMessagesRef = useRef<Array<ChatMessage>>([])

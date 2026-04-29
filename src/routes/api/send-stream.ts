@@ -7,7 +7,6 @@ import {
   registerActiveSendRun,
   unregisterActiveSendRun,
 } from '../../server/send-run-tracker'
-import { getChatMode } from '../../server/gateway-capabilities'
 import { ensureLocalSession, appendLocalMessage, getLocalMessages, touchLocalSession } from '../../server/local-session-store'
 import { getLocalProviderDef, getDiscoveredModels } from '../../server/local-provider-discovery'
 import {
@@ -17,12 +16,16 @@ import {
 } from '../../server/openai-compat-api'
 import {
   SESSIONS_API_UNAVAILABLE_MESSAGE,
-  createSession,
-  ensureGatewayProbed,
-  getGatewayCapabilities,
-  listSessions,
-  streamChat,
 } from '../../server/hermes-api'
+import { resolveRequestHermesInstance } from '../../server/hermes-instances'
+import {
+  createInstanceSession,
+  getInstanceChatMode,
+  listInstanceSessions,
+  openaiInstanceChat,
+  probeInstanceCapabilities,
+  streamInstanceChat,
+} from '../../server/hermes-instance-api'
 import type {OpenAICompatContentPart, OpenAICompatMessage} from '../../server/openai-compat-api';
 // Hermes agent runs can take 5+ minutes with complex tool chains
 const SEND_STREAM_RUN_TIMEOUT_MS = 600_000
@@ -277,7 +280,8 @@ export const Route = createFileRoute('/api/send-stream')({
         }
         const csrfCheck = requireJsonContentType(request)
         if (csrfCheck) return csrfCheck
-        await ensureGatewayProbed()
+        const instance = await resolveRequestHermesInstance(request)
+        const capabilities = await probeInstanceCapabilities(instance)
 
         // Read body manually to handle large payloads (image attachments
         // can push the JSON body above the default ~1MB parse limit).
@@ -337,7 +341,7 @@ export const Route = createFileRoute('/api/send-stream')({
         }
 
         // Check if the selected model is a local provider model — force portable + direct routing
-        let chatMode = getChatMode()
+        let chatMode = getInstanceChatMode(capabilities)
         let localBaseUrl: string | undefined
         const requestModel = typeof body.model === 'string' ? body.model : ''
         const bareModel = requestModel.includes('/') ? requestModel.split('/').slice(1).join('/') : requestModel
@@ -461,17 +465,31 @@ export const Route = createFileRoute('/api/send-stream')({
                       content: userContent,
                     },
                   ]
-                  const stream = await openaiChat(portableMessages, {
-                    model: localBaseUrl ? bareModel : (typeof body.model === 'string' ? body.model : undefined),
-                    temperature:
-                      typeof body.temperature === 'number'
-                        ? body.temperature
-                        : undefined,
-                    signal: abortController.signal,
-                    stream: true,
-                    sessionId: portableSessionKey,
-                    baseUrl: localBaseUrl,
-                  })
+                  const stream = localBaseUrl
+                    ? await openaiChat(portableMessages, {
+                        model: bareModel,
+                        temperature:
+                          typeof body.temperature === 'number'
+                            ? body.temperature
+                            : undefined,
+                        signal: abortController.signal,
+                        stream: true,
+                        sessionId: portableSessionKey,
+                        baseUrl: localBaseUrl,
+                      })
+                    : await openaiInstanceChat(instance, portableMessages, {
+                        model:
+                          typeof body.model === 'string'
+                            ? body.model
+                            : instance.model,
+                        temperature:
+                          typeof body.temperature === 'number'
+                            ? body.temperature
+                            : undefined,
+                        signal: abortController.signal,
+                        stream: true,
+                        sessionId: portableSessionKey,
+                      })
 
                   let thinking = ''
                   let toolEventCount = 0
@@ -539,7 +557,7 @@ export const Route = createFileRoute('/api/send-stream')({
                 return
               }
 
-              if (!getGatewayCapabilities().sessions) {
+              if (!capabilities.sessions) {
                 throw new Error(SESSIONS_API_UNAVAILABLE_MESSAGE)
               }
 
@@ -551,7 +569,7 @@ export const Route = createFileRoute('/api/send-stream')({
                 let reused: string | null = null
                 if (sessionKey === 'main') {
                   try {
-                    const recent = await listSessions(30, 0)
+                    const recent = await listInstanceSessions(instance, 30, 0)
                     const isInternal = (id: string) =>
                       id.startsWith('cron_') ||
                       id.startsWith('cron:') ||
@@ -584,7 +602,7 @@ export const Route = createFileRoute('/api/send-stream')({
                   sessionKey = reused
                   resolvedFriendlyId = reused
                 } else {
-                  const session = await createSession()
+                  const session = await createInstanceSession(instance)
                   sessionKey = session.id
                   resolvedFriendlyId = session.id
                 }
@@ -595,7 +613,8 @@ export const Route = createFileRoute('/api/send-stream')({
               // directly to useStreamingMessage. Skip publishChatEvent to prevent
               // useRealtimeChatHistory from creating duplicate message bubbles.
               const skipPublish = true
-              await streamChat(
+              await streamInstanceChat(
+                instance,
                 sessionKey,
                 {
                   message: getChatMessage(message, attachments),
@@ -935,6 +954,7 @@ export const Route = createFileRoute('/api/send-stream')({
             Connection: 'keep-alive',
             'X-Hermes-Session-Key': sessionKey,
             'X-Hermes-Friendly-Id': resolvedFriendlyId,
+            'X-Hermes-Instance': instance.id,
           },
         })
       },

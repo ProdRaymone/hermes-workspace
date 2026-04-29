@@ -4,36 +4,88 @@ import {
   isAuthenticated,
   isPasswordProtectionEnabled,
 } from '../../server/auth-middleware'
-import { ensureGatewayProbed } from '../../server/gateway-capabilities'
+import type { InstanceCapabilities } from '../../server/hermes-instance-api'
+import {
+  getRequestInstanceId,
+  resolveRequestHermesInstance,
+} from '../../server/hermes-instances'
+import { probeInstanceCapabilities } from '../../server/hermes-instance-api'
+import { isDefaultHermesInstance } from '../../lib/hermes-instance-scope'
+
+type AuthReachabilityCaps = Pick<
+  InstanceCapabilities,
+  'health' | 'chatCompletions' | 'models'
+>
+
+export function isAuthBackendReachable(caps: AuthReachabilityCaps): boolean {
+  return caps.health || caps.chatCompletions || caps.models
+}
+
+export function shouldBlockWorkspaceForUnreachableAuthBackend(
+  instanceId: string,
+  reachable: boolean,
+): boolean {
+  return !reachable && isDefaultHermesInstance(instanceId)
+}
 
 export const Route = createFileRoute('/api/auth-check')({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        try {
-          // Use ensureGatewayProbed() which handles auto-detection across
-          // multiple ports (8642, 8643) instead of checking a single
-          // hardcoded URL. This was previously a standalone
-          // isBackendReachable() that only tried port 8642 and never
-          // benefited from the gateway-capabilities auto-detection logic.
-          const caps = await ensureGatewayProbed()
-          const reachable = caps.health || caps.chatCompletions || caps.models
+        const requestedInstanceId = getRequestInstanceId(request)
+        const authRequired = isPasswordProtectionEnabled()
+        const authenticated = isAuthenticated(request)
 
-          if (!reachable) {
+        try {
+          const instance = await resolveRequestHermesInstance(request)
+          const caps = await probeInstanceCapabilities(instance)
+          const reachable = isAuthBackendReachable(caps)
+
+          if (
+            shouldBlockWorkspaceForUnreachableAuthBackend(
+              instance.id,
+              reachable,
+            )
+          ) {
             return json(
               {
                 authenticated: false,
                 authRequired: false,
+                backendReachable: false,
+                instance: instance.id,
                 error: 'hermes_agent_unreachable',
               },
               { status: 503 },
             )
           }
+
+          return json({
+            authenticated,
+            authRequired,
+            backendReachable: reachable,
+            instance: instance.id,
+            ...(reachable ? {} : { error: 'hermes_agent_unreachable' }),
+          })
         } catch (error) {
+          if (!isDefaultHermesInstance(requestedInstanceId)) {
+            return json({
+              authenticated,
+              authRequired,
+              backendReachable: false,
+              instance: requestedInstanceId,
+              error:
+                error instanceof DOMException && error.name === 'AbortError'
+                  ? 'hermes_agent_timeout'
+                  : 'hermes_agent_unreachable',
+            })
+          }
+
           return json(
             {
               authenticated: false,
               authRequired: false,
+              backendReachable: false,
+              instance: requestedInstanceId,
               error:
                 error instanceof DOMException && error.name === 'AbortError'
                   ? 'hermes_agent_timeout'
@@ -42,14 +94,6 @@ export const Route = createFileRoute('/api/auth-check')({
             { status: 503 },
           )
         }
-
-        const authRequired = isPasswordProtectionEnabled()
-        const authenticated = isAuthenticated(request)
-
-        return json({
-          authenticated,
-          authRequired,
-        })
       },
     },
   },

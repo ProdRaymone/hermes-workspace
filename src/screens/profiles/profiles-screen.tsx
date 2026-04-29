@@ -19,6 +19,7 @@ import { DialogContent, DialogRoot, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
+import { HermesInstancesSection } from './profiles-instances-section'
 
 type ProfileSummary = {
   name: string
@@ -294,6 +295,8 @@ export function ProfilesScreen() {
           Create profile
         </Button>
       </div>
+
+      <HermesInstancesSection />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {sorted.map((profile) => {

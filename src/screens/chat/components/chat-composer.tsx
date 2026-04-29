@@ -44,6 +44,7 @@ import { cn } from '@/lib/utils'
 import { useVoiceInput } from '@/hooks/use-voice-input'
 import { useVoiceRecorder } from '@/hooks/use-voice-recorder'
 import { toast } from '@/components/ui/toast'
+import { getActiveHermesInstanceId } from '@/hooks/use-hermes-instances'
 import {
   getZeroForkModelInfoFlags,
   MODEL_SWITCH_BLOCKED_TOAST,
@@ -182,7 +183,8 @@ async function fetchModels(): Promise<{
   // actually configured and available (OCPlatform gateway + local providers).
   // Previously this hit /api/hermes-proxy/api/available-models which returned
   // every upstream provider model — flooding the picker with unusable options.
-  const response = await fetch('/api/models')
+  const query = new URLSearchParams({ instance: getActiveHermesInstanceId() })
+  const response = await fetch(`/api/models?${query.toString()}`)
   if (!response.ok) {
     throw new Error(`Models request failed (${response.status})`)
   }
@@ -650,7 +652,8 @@ async function fetchCurrentModelFromStatus(): Promise<string> {
   const timeout = globalThis.setTimeout(() => controller.abort(), 7000)
 
   try {
-    const response = await fetch('/api/session-status', {
+    const query = new URLSearchParams({ instance: getActiveHermesInstanceId() })
+    const response = await fetch(`/api/session-status?${query.toString()}`, {
       signal: controller.signal,
     })
     if (!response.ok) {
@@ -677,7 +680,8 @@ async function fetchCurrentModelFromStatus(): Promise<string> {
 }
 
 async function fetchGatewayMode(): Promise<string | null> {
-  const response = await fetch('/api/gateway-status')
+  const query = new URLSearchParams({ instance: getActiveHermesInstanceId() })
+  const response = await fetch(`/api/gateway-status?${query.toString()}`)
   if (!response.ok) {
     throw new Error(await readResponseError(response))
   }

@@ -11,6 +11,8 @@ import {
 import { cn } from '@/lib/utils'
 import { InspectorToggleButton } from '@/components/inspector/inspector-panel'
 import { openHamburgerMenu } from '@/components/mobile-hamburger-menu'
+import type { HermesInstanceSummary } from '@/hooks/use-hermes-instances'
+import { HermesInstanceSwitcher } from './hermes-instance-switcher'
 
 function toTitleCase(value: string): string {
   return value
@@ -105,6 +107,9 @@ type ChatHeaderProps = {
   onToggleFocusMode?: () => void
   onUndo?: () => void
   onClear?: () => void
+  instances?: Array<HermesInstanceSummary>
+  activeInstanceId?: string
+  onSelectInstance?: (instanceId: string) => void
 }
 
 function ChatHeaderComponent({
@@ -132,6 +137,9 @@ function ChatHeaderComponent({
   onToggleFocusMode,
   onUndo,
   onClear,
+  instances = [],
+  activeInstanceId = 'default',
+  onSelectInstance,
 }: ChatHeaderProps) {
   const [clearConfirm, setClearConfirm] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -340,6 +348,11 @@ function ChatHeaderComponent({
             </TooltipRoot>
           </TooltipProvider>
         ) : null}
+        <HermesInstanceSwitcher
+          instances={instances}
+          activeInstanceId={activeInstanceId}
+          onSelectInstance={onSelectInstance}
+        />
         <div className="group min-w-0 flex-1">
           {isEditingTitle ? (
             <input

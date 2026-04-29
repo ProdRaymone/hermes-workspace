@@ -1,4 +1,6 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
+import { getActiveHermesInstanceId } from '@/hooks/use-hermes-instances'
+import { getLastSessionStorageKey } from '@/screens/chat/chat-screen-utils'
 
 export const Route = createFileRoute('/chat/')({
   ssr: false,
@@ -8,7 +10,9 @@ export const Route = createFileRoute('/chat/')({
     try {
       const stored =
         typeof window !== 'undefined'
-          ? localStorage.getItem('hermes-last-session')
+          ? localStorage.getItem(
+              getLastSessionStorageKey(getActiveHermesInstanceId()),
+            )
           : null
       if (stored && stored !== 'main') lastSession = stored
     } catch {}

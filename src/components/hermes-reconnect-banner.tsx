@@ -1,25 +1,43 @@
 import { useEffect, useRef, useState } from 'react'
+import {
+  buildInstanceApiPath,
+  isConnectionStatusReachable,
+  isDefaultHermesInstance,
+  shouldAttemptHermesAutoStart,
+} from '@/lib/hermes-instance-scope'
 
 const POLL_INTERVAL_MS = 10_000
 const FLASH_DURATION_MS = 1_800
 
 type HermesReconnectBannerProps = {
   enabled?: boolean
+  instanceId?: string
+  allowAutoStart?: boolean
 }
 
 type BannerState = 'hidden' | 'disconnected' | 'connected'
 
-async function probeHermesHealth(): Promise<boolean> {
+async function probeHermesHealth(instanceId?: string): Promise<boolean> {
   // Use the portable-aware connection status endpoint first,
   // which works with both full Hermes and OpenAI-compatible backends.
   try {
-    const response = await fetch('/api/connection-status', {
-      cache: 'no-store',
-    })
-    if (response.ok) return true
+    const response = await fetch(
+      buildInstanceApiPath('/api/connection-status', instanceId),
+      {
+        cache: 'no-store',
+      },
+    )
+    if (response.ok) {
+      const data = (await response.json().catch(() => null)) as
+        | Parameters<typeof isConnectionStatusReachable>[0]
+        | null
+      return isConnectionStatusReachable(data)
+    }
   } catch {
     /* fall through */
   }
+  if (!isDefaultHermesInstance(instanceId)) return false
+
   // Fallback to direct health proxy
   try {
     const response = await fetch('/api/hermes-proxy/health', {
@@ -33,6 +51,8 @@ async function probeHermesHealth(): Promise<boolean> {
 
 export function HermesReconnectBanner({
   enabled = true,
+  instanceId = 'default',
+  allowAutoStart = false,
 }: HermesReconnectBannerProps) {
   const [bannerState, setBannerState] = useState<BannerState>('hidden')
   const [isChecking, setIsChecking] = useState(false)
@@ -46,9 +66,8 @@ export function HermesReconnectBanner({
   >(null)
   const wasDisconnectedRef = useRef(false)
   const flashTimerRef = useRef<number | null>(null)
-  // Silent auto-restart: if the gateway disappears mid-session, fire
-  // /api/start-hermes once. After that, fall back to the manual "Start Agent"
-  // button so we don't loop forever on a busted environment.
+  // Legacy silent auto-start is gated off by default for multi-instance V1.
+  // Only the default instance may use it when a caller explicitly opts in.
   const autoRestartTriedAtRef = useRef<number>(0)
   // Cool-down so a permanently-dead gateway doesn't get poked every probe.
   const AUTO_RESTART_COOLDOWN_MS = 5 * 60_000
@@ -88,7 +107,7 @@ export function HermesReconnectBanner({
         setIsChecking(true)
       }
 
-      const pendingProbe = probeHermesHealth()
+      const pendingProbe = probeHermesHealth(instanceId)
         .then((connected) => {
           if (cancelled || !mountedRef.current) return connected
 
@@ -115,7 +134,10 @@ export function HermesReconnectBanner({
             setBannerState('disconnected')
             const sinceLastTry =
               Date.now() - autoRestartTriedAtRef.current
-            if (sinceLastTry > AUTO_RESTART_COOLDOWN_MS) {
+            if (
+              shouldAttemptHermesAutoStart(instanceId, allowAutoStart) &&
+              sinceLastTry > AUTO_RESTART_COOLDOWN_MS
+            ) {
               autoRestartTriedAtRef.current = Date.now()
               void fetch('/api/start-hermes', {
                 method: 'POST',
@@ -183,7 +205,7 @@ export function HermesReconnectBanner({
       probeNowRef.current = null
       window.clearInterval(interval)
     }
-  }, [enabled])
+  }, [allowAutoStart, enabled, instanceId])
 
   async function handleRetry(): Promise<void> {
     if (!enabled) return
@@ -233,6 +255,7 @@ export function HermesReconnectBanner({
   }
 
   const isDisconnected = bannerState === 'disconnected'
+  const canStartAgent = isDefaultHermesInstance(instanceId)
 
   return (
     <div
@@ -283,17 +306,19 @@ export function HermesReconnectBanner({
             >
               {isChecking ? 'Retrying…' : 'Retry'}
             </button>
-            <button
-              type="button"
-              onClick={() => void handleStartAgent()}
-              disabled={isStarting}
-              className="rounded-md px-3 py-1.5 text-sm font-medium text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
-              style={{
-                background: 'var(--theme-danger)',
-              }}
-            >
-              {isStarting ? 'Starting…' : 'Start Agent'}
-            </button>
+            {canStartAgent ? (
+              <button
+                type="button"
+                onClick={() => void handleStartAgent()}
+                disabled={isStarting}
+                className="rounded-md px-3 py-1.5 text-sm font-medium text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
+                style={{
+                  background: 'var(--theme-danger)',
+                }}
+              >
+                {isStarting ? 'Starting…' : 'Start Agent'}
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>

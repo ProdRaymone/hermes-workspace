@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { chatQueryKeys } from '../chat-queries'
 import { readError } from '../utils'
 import { updateSessionTitleState } from '../session-title-store'
+import { getActiveHermesInstanceId } from '@/hooks/use-hermes-instances'
 
 export type RenameSessionResult = {
   renameSession: (
@@ -29,7 +30,9 @@ export function useRenameSession(): RenameSessionResult {
     mutationFn: async function renameSessionRequest(
       payload: RenameSessionPayload,
     ) {
-      const res = await fetch('/api/sessions', {
+      const instanceId = getActiveHermesInstanceId()
+      const query = new URLSearchParams({ instance: instanceId })
+      const res = await fetch(`/api/sessions?${query.toString()}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -43,13 +46,15 @@ export function useRenameSession(): RenameSessionResult {
     },
     onMutate: async function onMutate(payload) {
       setError(null)
-      await queryClient.cancelQueries({ queryKey: chatQueryKeys.sessions })
-      const previousSessions = queryClient.getQueryData(chatQueryKeys.sessions)
+      const instanceId = getActiveHermesInstanceId()
+      const sessionsKey = chatQueryKeys.sessionsFor(instanceId)
+      await queryClient.cancelQueries({ queryKey: sessionsKey })
+      const previousSessions = queryClient.getQueryData(sessionsKey)
 
       const targetId = payload.friendlyId || payload.sessionKey
       // Optimistically update the session title in cache
       queryClient.setQueryData(
-        chatQueryKeys.sessions,
+        sessionsKey,
         function update(sessions: unknown) {
           if (!Array.isArray(sessions)) return sessions
           return (sessions as Array<Record<string, unknown>>).map((session) => {
@@ -71,25 +76,29 @@ export function useRenameSession(): RenameSessionResult {
         },
       )
 
-      return { previousSessions, targetId }
+      return { previousSessions, sessionsKey, targetId, instanceId }
     },
     onError: function onError(err, _payload, context) {
       if (context?.previousSessions) {
         queryClient.setQueryData(
-          chatQueryKeys.sessions,
+          context.sessionsKey,
           context.previousSessions,
         )
       }
       setError(err instanceof Error ? err.message : String(err))
     },
-    onSuccess: function onSuccess(payload) {
+    onSuccess: function onSuccess(payload, _variables, context) {
       const targetId = payload.friendlyId || payload.sessionKey
-      updateSessionTitleState(targetId, {
-        title: payload.newTitle,
-        source: 'manual',
-        status: 'ready',
-        error: null,
-      })
+      updateSessionTitleState(
+        targetId,
+        {
+          title: payload.newTitle,
+          source: 'manual',
+          status: 'ready',
+          error: null,
+        },
+        context?.instanceId,
+      )
       // Invalidate to ensure we have the latest data
       queryClient.invalidateQueries({ queryKey: chatQueryKeys.sessions })
     },
