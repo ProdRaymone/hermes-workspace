@@ -45,6 +45,7 @@ The goal is to make Hermes Workspace safely operate across the existing WSL Herm
 - `/api/auth-check` is instance-aware for startup checks; stopped Hermes2/3 no longer trap the Workspace behind the startup overlay, while default/Hermes1 keeps the legacy unreachable-backend blocking behavior.
 - Onboarding/setup checks are explicitly Workspace-level and pinned to Hermes1/default for V1; non-default instance status cannot auto-complete first-run setup.
 - Dashboard, Knowledge, and Memory now show read-only scope banners so stopped Hermes2/3 are not presented as live Hermes1-backed state.
+- Memory browser APIs and UI are V2 instance-scoped: default/Hermes1 keeps the legacy local `$HERMES_HOME`/`~/.hermes` memory root, while Hermes2/Hermes3 read and write through the selected WSL profile path.
 - V1 smoke checks confirm stopped Hermes2/3 return expected 503 for `/api/ping`, structured disconnected state for status/auth checks, and UI scope banners remain visible on Dashboard/Memory/Knowledge/Skills without starting Hermes2/3.
 - Temporary updated Workspace is available at `http://127.0.0.1:16061/chat/new`.
 - `16060` may still be an older Workspace process.
@@ -88,6 +89,24 @@ Latest V1.2 verification:
 - `pnpm build` passed on 2026-04-29 with the existing sourcemap, dynamic-import, and chunk-size warnings.
 - Existing Workspace `16061` smoke passed for `/api/instances`, `/api/connection-status`, `/api/ping`, `/api/models`, `/profiles`, and `/chat/new` across default/Hermes2/Hermes3.
 - A separate built Workspace smoke on `16062` verified the new `start-log` route and built `/profiles` plus `/chat/new` switcher UI without restarting Hermes1 or replacing the existing `16061` process. The ad-hoc `16062` process was stopped after smoke; it was not used for `/api/models` because it did not inherit the existing Workspace gateway-auth environment.
+
+## V2 Memory Checkpoint
+
+The first V2 semantics slice is implemented as of 2026-04-29:
+
+- Added a Memory scope helper that resolves default/Hermes1 to the legacy local Workspace memory root and non-default WSL instances to the selected profile path.
+- Added a WSL profile file adapter for Memory list/read/search/write. The adapter sends a small script through `wsl.exe sh -s`, passes a structured payload, validates relative Markdown paths, confines file access to the selected profile root, and redacts secret-like command errors.
+- Made `/api/memory/list`, `/api/memory/read`, `/api/memory/search`, and `/api/memory/write` resolve `?instance=` through the WSL Hermes instance registry and return a small `scope` payload.
+- Updated the Memory screen query keys and requests to include the active Hermes instance. The banner now labels Memory as `Instance-scoped`.
+- Stopped non-default gateways still allow file-backed Memory browsing when WSL profile files are reachable; gateway status is not used as a Memory capability gate.
+
+Still out of scope for this slice: Knowledge, Skills, Hermes config, MCP helpers, Stop, and Restart.
+
+Latest V2 Memory verification:
+
+- `pnpm test` passed 32 files / 105 tests on 2026-04-29.
+- `pnpm build` passed on 2026-04-29 with the existing sourcemap, dynamic-import, and chunk-size warnings.
+- Read-only WSL Memory adapter smoke: default resolved as `workspace-local` with 0 memory files; Hermes2 resolved as `wsl-profile` with 2 memory files; Hermes3 resolved as `wsl-profile` with 0 memory files.
 
 ## Version Roadmap
 
@@ -185,8 +204,8 @@ Audit snapshot:
 | Chat correctness | `usePinnedSessions` | Done | Persist store name stays `pinned-sessions`; default list is legacy, non-default pins live under `pinnedSessionKeysByInstance`. |
 | Chat correctness | Active-run polling and persisted run store | Done | Client polling passes `?instance=...`; default keeps legacy run paths and Hermes2/3 use `runs/instances/<instance>/<session>`. Waiting-state keys are also scoped for non-default instances. |
 | Knowledge/Memory isolation | Knowledge browser/config | V1 display-only | UI now labels Knowledge as Workspace-shared; config still lives in default `~/.hermes/knowledge-config.json`. |
-| Knowledge/Memory isolation | Memory browser | V1 display-only | UI now labels Memory as Workspace-shared; browser reads Workspace server `HERMES_HOME`/`~/.hermes` files, not WSL profile-specific memory. Non-default instances render the Workspace-shared browser rather than gating on stopped Hermes2/3 backend capability. |
-| Knowledge/Memory isolation | `/api/memory`, `/api/hermes-config`, `/api/skills*`, MCP/config helpers | Remaining | These still use legacy singleton gateway/config helpers or default local paths. Dashboard, direct Skills, and global search hide non-default skills rather than implying Hermes2/3 shares Hermes1 skills. |
+| Knowledge/Memory isolation | Memory browser | V2 first slice done | `/api/memory/*` and the Memory screen now follow the selected instance. Default keeps legacy local memory paths; Hermes2/3 use the selected WSL profile path through the file adapter. Stopped non-default gateways can still show file-backed profile memory. |
+| Knowledge/Memory isolation | `/api/hermes-config`, `/api/skills*`, MCP/config helpers | Remaining | These still use legacy singleton gateway/config helpers or default local paths. Dashboard, direct Skills, and global search hide non-default skills rather than implying Hermes2/3 shares Hermes1 skills. |
 | Visual-only status | Dashboard | Done | Dashboard sessions/status follow active instance; model card reads WSL profile metadata; non-default skills are explicitly hidden for V1. Browser smoke confirmed Hermes2 stopped is shown as stopped and does not inherit Hermes1 state. |
 | Visual-only status | Sidebar `StatusDot`, reconnect banner | Done | Both use active instance status. Reconnect no longer treats HTTP 200 + disconnected payload as connected, and silent auto-start is gated off by default. |
 | Visual-only status | `auth-check` and startup overlay | Done | Client passes active instance to `/api/auth-check`; non-default unreachable instances return structured state without blocking the Shell, default keeps legacy blocking behavior. |
